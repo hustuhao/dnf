@@ -1,0 +1,21 @@
+{
+  "name": "DNF Dungeon Sync Research (Static Analysis)",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "remoteUser": "vscode",
+  "workspaceFolder": "/workspaces/dnf",
+  "postCreateCommand": "bash research/dungeon-sync/cloud/verify-env.sh",
+  "forwardPorts": [],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-python.python",
+        "redhat.vscode-yaml",
+        "bierner.markdown-mermaid"
+      ]
+    }
+  }
+}

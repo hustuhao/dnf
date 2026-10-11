@@ -66,3 +66,16 @@
 从当前 `df_stun_r` 的实际 ELF64 机器码反汇编，已确认 `main` 用立即数 `2311/2312/2313` 依次创建 `RealIP/NAT/MTU` Socket 并创建 3 条对应处理线程。`msgProcess(0x401584)` 检查入站数据第一个字节：`0x01` 与 `0x05` 均生成 `0x02 + 4 字节源 IP + 2 字节源端口` 的七字节响应，其中 `0x05` 通过 2313 对应的第三 Socket 发送；`0x00` 直接成功返回。`stunProcess3` 则通过 UDP 回送实际接收长度的两字节字段。
 
 **这是经 ELF 反汇编证实的代码逻辑，不是抓包后的完整协议规范。** 详见 [stun-protocol.md](stun-protocol.md)、[E29–E31](evidence.md#e29)。无法据此确认客户端 NAT 分类、打洞重试次数、P2P/Relay 切换机制及地下城战斗同步边界。
+
+## 云端研究环境（Codespaces / Codex Cloud）
+
+仓库已提供独立的 [GitHub Codespaces 开发容器](../../.devcontainer/dungeon-research/devcontainer.json) 和 [Codex Cloud 安装/研究任务](cloud/README.md)，用于克服 GitHub 文本接口无法读取大型 `df_game_r` ELF 的限制。云端首次启动需在本人账号内手动授权/发布；配置文件已提交并不等于云服务器实例已经运行。
+
+先在专用研究分支上创建环境，然后执行：
+
+```bash
+bash research/dungeon-sync/cloud/verify-env.sh
+bash research/dungeon-sync/cloud/scan-static.sh
+```
+
+该扫描只读取二进制并生成本地 gitignored 报告，不执行 `df_game_r`。下一步优先检查 `frida-address-map.csv` 与 `CParty/CDungeon/MapInfo` 调用者。
