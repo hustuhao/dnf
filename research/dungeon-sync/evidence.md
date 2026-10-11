@@ -1,4 +1,4 @@
-# 证据记录（静态 v0.2）
+# 证据记录（静态 v0.3）
 
 - **固定基线：** `main` commit `1d59eeafeaa105a3c109091c3d5fc061a30bbf19`
 - **方法：** GitHub 连接器读取仓库文本、目录与 Git tree；人工交叉检查配置和 Frida 入口。已解析 Relay/STUN 的 ELF 头、实际符号和字符串；仍未获得 Game ELF 字节、未反汇编、未运行程序或抓包。
@@ -99,3 +99,15 @@
 ### E25
 
 **已证实·STUN 实际 ELF 头、符号、字符串。** [df_stun_r](https://github.com/hustuhao/dnf/blob/1d59eeafeaa105a3c109091c3d5fc061a30bbf19/build/dnf_data/home/template/neople/stun/df_stun_r)，Git blob SHA `9e8e459f5bc1144617213d3141e2c5a740e2bc2c`，131,126 字节，ELF64/x86-64，含 `.symtab` 和 `.debug_info`。`stunProcess1/2/3(void*)` 在 `0x4017A4`、`0x401722`、`0x401674`，包含日志 `Create Thread1 RealIP Socket`、`Create Thread2 NAT Socket`、`Create Thread3 MTU_CHECKER Socket`、`STUN Server v1.4.0.0`。精确的线程调用链和端口映射仍待反汇编。
+
+### E26
+
+**已证实·Relay 真实机器码及直接调用（UDP→TCP）。** 来源 [`df_relay_r` ELF](https://github.com/hustuhao/dnf/blob/1d59eeafeaa105a3c109091c3d5fc061a30bbf19/build/dnf_data/home/template/neople/relay/df_relay_r)，Git blob `c39c47eeb19127a105a0c3309e9b663de81e239a`，`.text` 文件偏移 `0x1B80`，虚拟地址 `0x08049B80`。从 ELF `.text` 提取函数机器码，再用 GNU `objdump -D -b binary -m i386 -M intel --adjust-vma` 验证：`UDPHandlerRelay::dispatch +0x31`（`0x0805E4F1`）直接 `call 0x8051B76`；该函数首字段需等于 0 才到达分支。`RelayService::relayToTCP 0x08051B7F` 写 `word ptr [eax]=3`、`0x08051B87` 读 `[eax+8]`、`0x08051B97` 调 `Users::getTCPUser`、`0x08051BB2` 调 `TCPUser::send`。这**已证实一条具体的内部转发逻辑**，不是推定全部地下城 UDP 都走 TCP。详见 [relay-control-flow.md](relay-control-flow.md)。
+
+### E27
+
+**已证实·TCP Relay 账号映射和有条件转发。** 实际机器码 `TCPHandlerRelay::dispatch(0x0805B958)` 首 16 位字段分支为 0、1；类型 0 通过 `getACCID`、`setACCID(0x0805B9F7)`、`setTCPUser(0x0805BA1E)`、`setAuthenticated(0x0805BA3B)` 关联用户；类型 1 在已有账号关联条件下经 `0x0805BA86` 调用 `relayToTCP`。`TCPUser::onPacketParse` 的已检查入口机器码在 `0x0805D049` 调 `isPopStraight(12)`，`0x0805D070` 读 `[ptr+2]` 16 位长度，`0x0805D07D` 读首 16 位类型，异常类型走 `postDisconnected`。**仅检查了 parser 的前约 220 字节，不能声称已经还原完整 TCP 封包协议。**
+
+### E28
+
+**已证实·UDP S2S 控制分支和授权链路。** `UDPHandlerS2S::dispatch(0x0805E406)` 首 16 位值为 0 时调用 `RelayService::setAuthenticated(0x0805E44D)`；值为 `0x09C4`（2500）且偏移 `+14` 字节为 0 时经 `0x0805E488` 调 `postDisconnectEvent2TCPUser`；值为 1 时不在此函数执行其他实质处理。`setAuthenticated` 在特定模式下的 `0x08051B69` 调用真实符号 `UDPSocket::pushMonitorAuthPacket`。**这些是内部机器码的比较数值与路径，未经抓包验证，不宜称网络协议消息 ID。**

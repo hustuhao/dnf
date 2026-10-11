@@ -1,7 +1,7 @@
-# DNF 多人地下城实时同步机制研究（静态研究 v0.2）
+# DNF 多人地下城实时同步机制研究（静态研究 v0.3）
 
 > 基线：hustuhao/dnf，`main` @ `1d59eeafeaa105a3c109091c3d5fc061a30bbf19`；分析日期：2026-10-11。  
-> 状态：**第一阶段静态研究**。未进行客户端抓包、服务端运行、二进制反汇编或函数地址验证。本文讨论的是**本仓库封装的 DNF 服务端版本**，不是所有 DNF 官方版本的通用结论。
+> 状态：**研究 v0.3**。已分析配置/Frida、Relay/STUN ELF 基本符号，并对 Relay 几个确定函数进行了机器码反汇编；未获得 Game ELF、未运行服务端或抓包。本文讨论的是**本仓库封装的 DNF 服务端版本**，不是所有 DNF 官方版本的通用结论。
 
 ## 先说结论
 
@@ -54,3 +54,9 @@
 在 [binary-static.md](binary-static.md) 中已记录 Relay/STUN 的真实 ELF 格式、Blob SHA 与符号表地址。Relay 的 `TCPUser::onPacketParse`、`PacketHeaderS2S`、TCP/UDP/S2S `dispatch`、`setAuthenticated` 符号确实存在，STUN 也存在三个 `stunProcess` 入口及 RealIP/NAT/MTU 线程日志。这说明 Relay 有包解析和鉴权相关代码，而不能再仅根据服务名称概括为“透明转发”；**但尚无证据说明其理解技能或伤害的业务内容**。
 
 `df_game_r` 约 36 MB，其文件正文受当前 GitHub 读取接口限制，**没有验证 Game ELF 的任何 Frida 地址**。已附带 [只读 ELF 检查脚本](tools/inspect-game-elf.sh) 供本地运行，核心研究问题仍见 [open-questions.md](open-questions.md)。
+
+## v0.3：Relay 消息控制流确认
+
+[Relay 机器码调用链](relay-control-flow.md) 已实证：`UDPHandlerRelay::dispatch(0x805E4C0)` 在首字段为 0 的分支调用 `relayToTCP`；后者将消息首 16 位改成 3，从偏移 +8 读取标识，用 `getTCPUser` 找到 TCP 目标后调用 `TCPUser::send`。`TCPHandlerRelay::dispatch` 具有账号绑定 / 鉴权及另一条转发路径；`UDPHandlerS2S::dispatch` 具有授权和断开事件分支。
+
+**此结果把 Relay 的“UDP 到 TCP 路由能力”提升到已由反汇编支持，但还未说明地下城战斗同步的路径及权威方。** 详见 [E26–E28](evidence.md#e26)。

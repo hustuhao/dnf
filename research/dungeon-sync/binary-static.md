@@ -56,3 +56,7 @@ flowchart TB
 `build/dnf_data/home/template/init/df_game_r` 大小 36,360,954 字节、Git blob `f7a65ba7bc723e96fadeae07e87b72e05560d989`。当前 GitHub 连接器未返回此大文件正文，故**本轮没有验证任何 `frida.js` 中的 Game 函数地址，也不能得出副本状态存储或战斗权威结论**。`doc/台服dnf服务架构.docx` 正文同样未取得。
 
 随研究目录提供一份 [Game ELF 只读检查脚本](tools/inspect-game-elf.sh)，用于实体检出环境的 `file` / `readelf` / `objdump` / `strings` 分析。该脚本没有在本次对 Game ELF 运行。
+
+## v0.3 增量（真正执行过小范围机器码反汇编）
+
+上面的 v0.2 清单仅属于 ELF 符号/字符串静态解析，后续已对 `TCPHandlerRelay::dispatch`、`UDPHandlerRelay::dispatch`、`UDPHandlerS2S::dispatch`、`RelayService::relayToTCP`、`RelayService::setAuthenticated`，以及 `TCPUser::onPacketParse` 的开头部分提取机器码，在本地 `objdump` 对**提取出的裸指令字节**进行反汇编并逐个映射实际 ELF 符号。新增的确定调用关系见 [relay-control-flow.md](relay-control-flow.md)；**仍未下载/反汇编 Game ELF，也未执行任何服务器二进制**。
