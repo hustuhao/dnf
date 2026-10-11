@@ -60,3 +60,7 @@ flowchart TB
 ## v0.3 增量（真正执行过小范围机器码反汇编）
 
 上面的 v0.2 清单仅属于 ELF 符号/字符串静态解析，后续已对 `TCPHandlerRelay::dispatch`、`UDPHandlerRelay::dispatch`、`UDPHandlerS2S::dispatch`、`RelayService::relayToTCP`、`RelayService::setAuthenticated`，以及 `TCPUser::onPacketParse` 的开头部分提取机器码，在本地 `objdump` 对**提取出的裸指令字节**进行反汇编并逐个映射实际 ELF 符号。新增的确定调用关系见 [relay-control-flow.md](relay-control-flow.md)；**仍未下载/反汇编 Game ELF，也未执行任何服务器二进制**。
+
+## v0.4：STUN 的线程、实际端口和回应构造已由反汇编确证
+
+`main` 中直接可见 `openPort(2311)`、`openPort(2312)`、`openPort(2313)` 及后续三条线程创建调用；`stunProcess1/2` 调用 `msgProcess`，`stunProcess3` 会回传实际收包长度的 2 字节字段。`msgProcess` 对首字节 `0x01`、`0x05` 的响应为七字节 `0x02 + 来源 IP 字段 + 来源端口字段`；`0x05` 采用第三个 Socket 发送。完整指令地址及部署配置差异见 [stun-protocol.md](stun-protocol.md)。本结论限于该 ELF 机器码，未对运行中的客户端或 STUN 进程抓包。

@@ -1,4 +1,4 @@
-# 证据记录（静态 v0.3）
+# 证据记录（静态 v0.4）
 
 - **固定基线：** `main` commit `1d59eeafeaa105a3c109091c3d5fc061a30bbf19`
 - **方法：** GitHub 连接器读取仓库文本、目录与 Git tree；人工交叉检查配置和 Frida 入口。已解析 Relay/STUN 的 ELF 头、实际符号和字符串；仍未获得 Game ELF 字节、未反汇编、未运行程序或抓包。
@@ -111,3 +111,15 @@
 ### E28
 
 **已证实·UDP S2S 控制分支和授权链路。** `UDPHandlerS2S::dispatch(0x0805E406)` 首 16 位值为 0 时调用 `RelayService::setAuthenticated(0x0805E44D)`；值为 `0x09C4`（2500）且偏移 `+14` 字节为 0 时经 `0x0805E488` 调 `postDisconnectEvent2TCPUser`；值为 1 时不在此函数执行其他实质处理。`setAuthenticated` 在特定模式下的 `0x08051B69` 调用真实符号 `UDPSocket::pushMonitorAuthPacket`。**这些是内部机器码的比较数值与路径，未经抓包验证，不宜称网络协议消息 ID。**
+
+### E29
+
+**已证实·STUN main 绑定端口与线程创建的真实机器码。** [`df_stun_r` ELF](https://github.com/hustuhao/dnf/blob/1d59eeafeaa105a3c109091c3d5fc061a30bbf19/build/dnf_data/home/template/neople/stun/df_stun_r) (`9e8e459f5bc1144617213d3141e2c5a740e2bc2c`)。`main(0x401F64)` 在 `0x402027–0x402036`、`0x402067–0x402076`、`0x4020A7–0x4020B6` 三次直接调用 `openPort(0x401C92)`，端口立即数分别 `0x907=2311`、`0x908=2312`、`0x909=2313`，把 Socket 存入 `0x603FA4`、`0x603FA8`、`0x603FAC`。`pthread_create` 处 `0x40210D/0x402128/0x402143` 传入 `stunProcess1/2/3`。三线程分别使用 RealIP、NAT、MTU_CHECKER 的二进制内字符串。不同于 v0.2，当下**已由反汇编确认线程及端口对应关系**。不能由此认定整个项目其他版本的 STUN 配置必然无效。
+
+### E30
+
+**已证实·STUN 请求类型与 7 字节响应内存布局。** `msgProcess(0x401584, 239B)` 反汇编 `0x4015A4–0x4015BA` 对输入第一个字节比较 `1`、`5`、`0`；`1`/`5` 分支 `0x4015BF/0x40160D` 写第一个响应字节为 `2`，从来源地址对象 `+4` 拷贝 4 字节 IP 字段、`+0` 拷贝 2 字节端口，`0x4015F3/0x401644` 发送长度参数 `7`。类型 `1` 用传入的 Socket；类型 `5` 在 `0x40163B` 从全局 `0x603FAC` 读取第三 Socket 发送。类型 `0` 在本函数中不发送并返回成功。**字段为静态内存写操作，还未用 pcap 验证实际字节序或客户端含义。** [stun-protocol.md](stun-protocol.md)。
+
+### E31
+
+**已证实·STUN MTU thread 的长度回包。** `stunProcess3(0x401674)` 在 `0x40169D` 使用缓冲容量 `0x5DC=1500`，`0x4016EB` 调 `getMessage(0x401AC0)`，`0x4016F4–0x4016F7` 将收到的实际字节数截成 16 位写入两个字节，`0x401712–0x401717` 以 `sendMessage(0x40189A)` 发回长度为 `2` 的消息。**未验证路径 MTU 发现算法或返回值字节序。**

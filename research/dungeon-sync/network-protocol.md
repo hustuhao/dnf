@@ -82,3 +82,9 @@ sudo tcpdump -i <test-iface> -s 0 -w dungeon-test.pcap \
 根据已提取真实机器码，`UDPHandlerRelay::dispatch` 的字段为 0 路径直接调用 `RelayService::relayToTCP`；`relayToTCP` 把首字段改为 3，按缓冲区 +8 标识查找 TCP 用户，然后调用 `TCPUser::send`。TCP Relay 存在账号绑定与另一条转发分支，UDP S2S 有授权/断开分支。[E26](evidence.md#e26) [E27](evidence.md#e27) [E28](evidence.md#e28)
 
 这证明 Relay 具有某种 **UDP→TCP 用户桥接**能力和控制面处理逻辑；没有证明地下城移动/伤害经过这条路径。有关确定的指令地址、输入内存偏移与尚未验证部分，参见 [relay-control-flow.md](relay-control-flow.md)。
+
+## v0.4：STUN 已部分还原实际请求/响应布局
+
+此前的 STUN 三端口配置现在有更强的机器码证据：当前 `df_stun_r` 的 `main` 以常数 `2311/2312/2313` 调用 `openPort`，创建 RealIP/NAT/MTU 对应的三个线程。`msgProcess` 对请求首字节 `0x01` 和 `0x05` 发送 7 字节回应（`0x02` 类型 + 4 字节来源 IP + 2 字节来源端口），其中 `0x05` 通过第三个 Socket 发送；`0x00` 在本函数中无发包。MTU 线程接收缓冲上限为 1500，返回两个字节长度。[E29](evidence.md#e29) [E30](evidence.md#e30) [E31](evidence.md#e31)
+
+**切勿混为一谈：** 这不是整个多人地下城“移动或技能协议”的消息头，且尚无客户端实际抓包确认响应字段字节序。完整的指令地址与限制见 [stun-protocol.md](stun-protocol.md)。

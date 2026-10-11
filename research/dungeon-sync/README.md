@@ -1,7 +1,7 @@
-# DNF 多人地下城实时同步机制研究（静态研究 v0.3）
+# DNF 多人地下城实时同步机制研究（静态研究 v0.4）
 
 > 基线：hustuhao/dnf，`main` @ `1d59eeafeaa105a3c109091c3d5fc061a30bbf19`；分析日期：2026-10-11。  
-> 状态：**研究 v0.3**。已分析配置/Frida、Relay/STUN ELF 基本符号，并对 Relay 几个确定函数进行了机器码反汇编；未获得 Game ELF、未运行服务端或抓包。本文讨论的是**本仓库封装的 DNF 服务端版本**，不是所有 DNF 官方版本的通用结论。
+> 状态：**研究 v0.4**。已分析配置/Frida、Relay/STUN ELF 基本符号，并对 Relay 几个确定函数进行了机器码反汇编；未获得 Game ELF、未运行服务端或抓包。本文讨论的是**本仓库封装的 DNF 服务端版本**，不是所有 DNF 官方版本的通用结论。
 
 ## 先说结论
 
@@ -60,3 +60,9 @@
 [Relay 机器码调用链](relay-control-flow.md) 已实证：`UDPHandlerRelay::dispatch(0x805E4C0)` 在首字段为 0 的分支调用 `relayToTCP`；后者将消息首 16 位改成 3，从偏移 +8 读取标识，用 `getTCPUser` 找到 TCP 目标后调用 `TCPUser::send`。`TCPHandlerRelay::dispatch` 具有账号绑定 / 鉴权及另一条转发路径；`UDPHandlerS2S::dispatch` 具有授权和断开事件分支。
 
 **此结果把 Relay 的“UDP 到 TCP 路由能力”提升到已由反汇编支持，但还未说明地下城战斗同步的路径及权威方。** 详见 [E26–E28](evidence.md#e26)。
+
+## v0.4：STUN 内存级响应结构与端口已核验
+
+从当前 `df_stun_r` 的实际 ELF64 机器码反汇编，已确认 `main` 用立即数 `2311/2312/2313` 依次创建 `RealIP/NAT/MTU` Socket 并创建 3 条对应处理线程。`msgProcess(0x401584)` 检查入站数据第一个字节：`0x01` 与 `0x05` 均生成 `0x02 + 4 字节源 IP + 2 字节源端口` 的七字节响应，其中 `0x05` 通过 2313 对应的第三 Socket 发送；`0x00` 直接成功返回。`stunProcess3` 则通过 UDP 回送实际接收长度的两字节字段。
+
+**这是经 ELF 反汇编证实的代码逻辑，不是抓包后的完整协议规范。** 详见 [stun-protocol.md](stun-protocol.md)、[E29–E31](evidence.md#e29)。无法据此确认客户端 NAT 分类、打洞重试次数、P2P/Relay 切换机制及地下城战斗同步边界。
