@@ -70,3 +70,9 @@ sudo tcpdump -i <test-iface> -s 0 -w dungeon-test.pcap \
 ```
 
 抓包文件如包含认证信息、角色隐私，应在本地保管并脱敏。相关具体假设见 [移动](movement-sync.md)、[战斗](combat-sync.md)。
+
+## v0.2：Relay 实际符号增强了静态证据
+
+`df_relay_r` 的真实 ELF 符号表存在 `TCPUser::onPacketParse(0x0805D02E)`、`TCPHandlerRelay::dispatch(0x0805B958)`、`UDPHandlerRelay::dispatch(0x0805E4C0)`、`UDPHandlerS2S::dispatch(0x0805E406)`、`RelayService::setAuthenticated`、`PacketHeaderS2S`；还有 `Monitor Auth` 等真实字符串。[E23](evidence.md#e23) [E24](evidence.md#e24)
+
+**已证实**：存在报文解析、鉴权、TCP/UDP 分流相关的实现入口；**未知**：各处理器是否在当前部署中被调用、`S2S` 是什么语义、是否解析角色移动/技能/伤害 payload。要对其进行静态反汇编/运行观察才能回答，不能从名字猜测消息 ID。详见 [binary-static.md](binary-static.md)。

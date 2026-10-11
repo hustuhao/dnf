@@ -63,3 +63,11 @@
 5. **回填证据：** 每次实验为 `evidence.md` 增加编号、版本、测试环境、操作步骤、时序、pcap 哈希、Hook 调用栈、否定性观察与置信度；只有完成核验后才将结论从假设提升至已证实。
 
 **不做：** 未经授权扫描公网、对真实玩家/第三方服务进行流量拦截、上传明文凭证或冒充运行实验结果。
+
+## Q11：Relay 的报文解析深度和 S2S 实际含义是什么？（P0）
+
+通过 [E23](evidence.md#e23) 已找到 `TCPUser::onPacketParse`、`TCPHandlerRelay::dispatch`、`UDPHandlerRelay::dispatch` 与 `UDPHandlerS2S::dispatch` 的实际 ELF 符号地址。下一步用 `objdump/Ghidra` 查分支与调用者，确认只是包长/认证/路由处理，还是具有游戏消息分类；之后在授权本地环境抓包交叉验证。
+
+## Q12：STUN 三线程与三个端口怎样对应？（P1）
+
+[E25](evidence.md#e25) 只证明三个 `stunProcess` 函数和 `RealIP/NAT/MTU_CHECKER` 标签存在。需反汇编线程创建者与 UDP 收发函数，不能仅凭端口号推定业务。
