@@ -88,3 +88,11 @@ sudo tcpdump -i <test-iface> -s 0 -w dungeon-test.pcap \
 此前的 STUN 三端口配置现在有更强的机器码证据：当前 `df_stun_r` 的 `main` 以常数 `2311/2312/2313` 调用 `openPort`，创建 RealIP/NAT/MTU 对应的三个线程。`msgProcess` 对请求首字节 `0x01` 和 `0x05` 发送 7 字节回应（`0x02` 类型 + 4 字节来源 IP + 2 字节来源端口），其中 `0x05` 通过第三个 Socket 发送；`0x00` 在本函数中无发包。MTU 线程接收缓冲上限为 1500，返回两个字节长度。[E29](evidence.md#e29) [E30](evidence.md#e30) [E31](evidence.md#e31)
 
 **切勿混为一谈：** 这不是整个多人地下城“移动或技能协议”的消息头，且尚无客户端实际抓包确认响应字段字节序。完整的指令地址与限制见 [stun-protocol.md](stun-protocol.md)。
+
+
+## v0.5：Game Server 确认的队伍发包路径与已知网络缺口
+
+此次基于完整 Game ELF（[E38–E39](evidence.md#e38)、[机器码/调用图](game-owner-static.md)）已证实（H）：
+`CParty::send_host_info() 0x0859CDD2` 在 **`0x0859CE5C: call 0x0859D14E`** 进入 `CParty::send_to_party(PacketGuard&)`；该函数先在 **`0x0859D16A: call 0x085B4D12`** 校验成员，再在 **`0x0859D194: call 0x086485BA`** 调 `CUser::Send(PacketGuard&)`。`CParty::send_party_ipinfo() 0x0859CEA2` 与 `CParty::ConnectP2P 0x0859A48C` 为 ELF 原生符号（H）。
+
+静态结论：Game 具备已调用的向**同一队伍多个 CUser 单播发包**的路径，同时提供 P2P IP 和 Host 协调功能。**未知（U）**：普通移动、技能、伤害、怪物 AI 是否走该接口；`CUser::Send` 进一步 TCP/UDP 排队路径、具体包头 opcode 和 Relay/Host/Peer 间战斗数据的路由。应先反查 `Dispatcher_ChangeHostWarRoom`、`DisPatcher_ResPeer`、`DisPatcher_DieMob` 与 `PacketBuf_get_*` 的读包/dispatch 注册表，再提出协议结论，不能从方法名推断网络协议。
