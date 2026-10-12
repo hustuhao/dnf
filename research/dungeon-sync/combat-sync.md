@@ -50,3 +50,15 @@ sequenceDiagram
 ## 第二阶段建议的交叉引用
 
 以 `CParty::OnFightVillageMonster`、`MapInfo::Add_Mob`、`CUser_gain_exp_sp`、`CUser_Send`、`PacketBuf_get_*` 为种子：先 `readelf -h -l -S -Ws`、`file`、`sha256sum` 核查 ELF 版本和映像基址，再在 Ghidra 中证实函数边界/调用者，最后在授权本地小流量场景记录栈、线程 ID 和进程 ID。硬编码地址是 **Frida 作者的声明**，不是本研究独立还原的反编译事实。
+
+
+## v0.5：Game ELF 中已确认的怪物死亡、拾取与服务器职责边界
+
+这部分不再仅限 Frida 怪物攻城活动代码：以下在真实 `df_game_r` 的 `nm/objdump` 中确认（[完整地址和机器码](game-owner-static.md)、[E37](evidence.md#e37)）。
+
+- 普通 `DisPatcher_DieMob::dispatch_sig` 的 **`0x081EBB73: call 0x085A27E8`** → `CParty::kill_monster(CUser*, int, unsigned short, MSG_MONSTER_DIE const&, int*)`，而 `CParty::kill_monster` 的 **`0x085A2B44: call 0x0830BC78`** → `CBattle_Field::kill_monster`（H）。这证明服务器**接收并处理怪物死亡相关业务**，不是服务器必然模拟每帧 HP 的证明。
+- `DisPatcher_GetItem::process` **`0x081C3905: call 0x085A3B98`** → `CParty::get_item`，其 **`0x085A3D19: call 0x0830D9C0`** → `CBattle_Field::get_field_item`；**`0x085A3DC7: call 0x086485BA`** → `CUser::Send`（H）。
+- `CParty::dungeon_clear` **`0x085AB74C: call 0x085B3520`** `SaveCoin`、**`0x085AB7E0: call 0x085AAB84`** `_putItemIntoUser`、**`0x085ABB06: call 0x085BF7FC`** `OnSuccessedDungeonClear`（H）。普通结算至少有 Game 侧发放/持久化前处理路径；事务提交和防重逻辑仍未知。
+- `CParty::set_host 0x0859CDBC` 的 **`0x0859CDC8: mov [eax+0x70],edx`**，以及 `CParty::ConnectP2P 0x0859A48C`：Host/P2P 协调线索已确证存在（H）。不能推断首领等于主机、主机处理怪物 AI、Game 只转发或 Game 全权计算（均 U）。
+
+**目前最重要的权威分界：** Game 确实实现“怪物死亡事件及奖惩结果的处理”，但是怪物死亡的**产生来源**（客户端报告/Host 结果/服务器计算）及相关校验、伤害计算/逐帧同步未定位（U）。下轮优先反编译 `DisPatcher_DieMob` 读包字段与 `CBattle_Field::kill_monster` 条件分支，再结合 Host/P2P 事件分发证据。
