@@ -66,3 +66,25 @@ flowchart LR
 | 经济/持久化层 | `CInventory`、`CUser_gain_exp_sp`、`ReqDBSend...Mail`、MySQL/DBMW | 普通掉落、结算与数据库事务、幂等操作标识 |
 
 **小结：** 现在可以画出可启动的频道服务拓扑，但不可以给出确定的“每队副本运行时”框架。验证路径见 [副本生命周期](dungeon-lifecycle.md)。
+
+
+## v0.5：Game ELF 里的对象所有权（替代上文「内部未知」的历史表述）
+
+> 该节是 2026-10-12 对完整 `df_game_r` 的新证据；上文 v0.1 仅描述此前已知部署信息。完整反汇编与地址：[game-owner-static.md](game-owner-static.md)，[E32–E39](evidence.md#v05完整-game-elf-只读反汇编2026-10-12)。
+
+**已确认（H）**：`CGameManager::GetParty() 0x08294E10` 在 `0x08294E21` 调 `StaticPool<CParty,600>::Acquire`，`GetParty(int) 0x08294F32` 在 `0x08294F52` 查 `hash_map<int,CParty*>`。`CUser::GetParty() 0x0865514C` 在 `0x08655156` 读用户队伍索引、`0x0865517B` 调 `GetParty(int)`。`CParty::CParty` 在 `0x082A565A` 调 `CBattle_Field::SetParty 0x082A43BE`，后者在 `0x082A43C7` 写反向的 `CParty*` 指针。`CBattle_Field::GetDungeon 0x080FDCFC` 从 `+0x188` 读取 `CDungeon*`（`0x080FDD02`），`GetMapInfo 0x0822D03E` 通过 `0x0822D04A` 调 `GetCurrentMapInfo 0x0822CBCC`。
+
+**高可信静态架构推断（M）**：频道 Game 进程持有队伍对象注册表，队伍对象联结战场及地图状态。**未知（U）**：战场对象是否队伍结构体直接内嵌、多人入本时共享的是哪个确切战场指针、Host/P2P 是否执行普通实时物理/HP 模拟。
+
+```mermaid
+flowchart LR
+  USER["CUser::GetParty 0x0865514C"] -->|"0x0865517B call"| LOOK["CGameManager::GetParty(int) 0x08294F32"]
+  LOOK -->|"0x08294F52 find"| REG["GameManager hash_map<int,CParty*> +0x270"]
+  REG --> PARTY["CParty*"]
+  NEW["CGameManager::GetParty() 0x08294E10"] -->|"0x08294E21 Acquire"| POOL["StaticPool<CParty,600>"]
+  POOL --> PARTY
+  PARTY -->|"constructor 0x082A565A call SetParty"| FIELD["CBattle_Field / backref to CParty*"]
+  FIELD -->|"0x080FDD02 load"| DUNG["CDungeon*"]
+  FIELD -->|"0x0822D04A call"| MAP["GetCurrentMapInfo"]
+  PARTY -. "仍未证明普通帧战斗权威" .-> HOST["Host / P2P / Client"]
+```
