@@ -1,0 +1,93 @@
+name: dungeon-game-static-evidence
+
+# Opt-in branch-only, static ELF inspection. Never launches game processes.
+on:
+  push:
+    branches:
+      - research/dungeon-sync-static-v1-20261011
+    paths:
+      - .github/workflows/dungeon-game-static-evidence.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Sparse checkout of research tools and ELF inputs
+        uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /research/dungeon-sync/
+            /build/dnf_data/home/template/init/df_game_r
+            /build/dnf_data/home/template/init/frida.js
+            /build/dnf_data/home/template/neople/relay/df_relay_r
+            /build/dnf_data/home/template/neople/stun/df_stun_r
+      - name: Verify complete ELF and baseline
+        shell: bash
+        run: bash research/dungeon-sync/cloud/verify-env.sh
+      - name: Run read-only static scan
+        shell: bash
+        run: bash research/dungeon-sync/cloud/scan-static.sh
+      - name: Print bounded Game ELF evidence (no binary artifact)
+        shell: bash
+        run: |
+          set -euo pipefail
+          game=build/dnf_data/home/template/init/df_game_r
+          echo "=== ELF HEADER / LOAD / SHA256 ==="
+          file "$game"
+          git hash-object "$game"
+          sha256sum "$game"
+          readelf -hW "$game" | grep -E 'Class:|Machine:|Type:|Entry point'
+          readelf -lW "$game" | grep -E 'LOAD|Type '
+          echo "=== SYMBOL MATCHES (bounded) ==="
+          (nm -C --defined-only "$game" | grep -Ei 'CParty|CDungeon|MapInfo|CUser::Send|PacketBuf|getParty' | head -n 90) || true
+          echo "=== FRIDA PT_LOAD COUNTS ==="
+          find research/dungeon-sync/artifacts-local/cloud-scan -name frida-address-summary.txt -exec cat '{}' ';'
+          echo "=== TARGET INSTRUCTIONS AND DIRECT REFERENCES (bounded) ==="
+          python3 - <<'PY'
+          import subprocess, re, collections
+          game="build/dnf_data/home/template/init/df_game_r"
+          targets={
+              0x080FDCF0:"CDungeon_get_index",
+              0x0865514C:"CUser_GetParty",
+              0x08145764:"CParty_get_user",
+              0x0859EAC2:"CParty_UseAncientDungeonItems",
+              0x08151612:"MapInfo_Add_Mob",
+              0x086485BA:"CUser_Send",
+              0x0858D27E:"PacketBuf_get_int",
+              0x08632A18:"TimerDispatcher_dispatch",
+          }
+          for addr,name in targets.items():
+              print(f"\nTARGET {name} 0x{addr:08X}")
+              p=subprocess.run(["objdump","-d","-M","intel",f"--start-address={addr}",f"--stop-address={addr+84}",game],capture_output=True,text=True)
+              for line in p.stdout.splitlines()[-16:]:
+                  print(line[:200])
+          print("\nDIRECT CALL/JMP REFERENCES TO TARGET ADDRESSES (not indirect xrefs)")
+          calls=collections.defaultdict(list)
+          proc=subprocess.Popen(["objdump","-d","-M","intel",game],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,errors="replace")
+          current_symbol="unknown"
+          for line in proc.stdout:
+              symbol=re.match(r"^[0-9a-f]+ <([^>]+)>:",line)
+              if symbol: current_symbol=symbol.group(1)[:100]
+              match=re.search(r"\b(call|jmp)\s+([0-9a-f]+)\b",line)
+              if match:
+                  dest=int(match.group(2),16)
+                  if dest in targets:
+                      calls[dest].append((current_symbol,line.strip()[:180]))
+          proc.stdout.close()
+          proc.wait()
+          for addr,name in targets.items():
+              found=calls[addr]
+              print(f"{name} 0x{addr:08X}: direct xrefs={len(found)}")
+              for sym,instruction in found[:12]:
+                  print(f"  {sym}: {instruction}")
+          print(f"objdump_returncode={proc.returncode}")
+          PY
