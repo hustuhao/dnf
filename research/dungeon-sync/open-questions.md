@@ -79,3 +79,19 @@
 ## Q14：端口模板是否真正支配当前 STUN ELF？（P1）
 
 `stun/cfg/udp_server.cfg` 使用 `2__SERVER_GROUP__11/12/13`，但此 ELF 的 `main` 确实用 2311/2312/2313 立即数调用 `openPort`。[E29](evidence.md#e29) 检查部署脚本是否对二进制或端口做替换，确认是否存在通过环境变量、参数或补丁改写端口的路径。不能在未验证时宣称动态配置对所有部署无效。
+
+
+## v0.5：P0 静态研究已经解答的部分（2026-10-12）
+
+**Q09 的 ELF 版本前置检查已完成**：Git blob `f7a65ba7bc723e96fadeae07e87b72e05560d989`、SHA256 `8859c99d8290dc5fb58151444138cf2697b2bfff12d47d6159596a03f20b5261`；ELF32/x86 ET_EXEC，Frida `ptr` 162 次中 156 次处于可执行 PT_LOAD，重要函数通过真实符号与机器码确认（[E32](evidence.md#e32)）。地址落段不等于 Hook ABI 正确，也不代表所有声明均有效。
+
+**Q01 的基础结构已得到高置信静态答案**：频道 `df_game_r` 内 `CGameManager::GetParty() 0x08294E10` 在 `0x08294E21` 获取 `StaticPool<CParty,600>` 对象，`GetParty(int) 0x08294F32` 在 `0x08294F52` 查 `hash_map<int,CParty*>`；`CUser::GetParty 0x0865514C` 的 `0x0865517B` 调用后者。`CParty` 构造函数在 `0x082A565A` 设置战场对象的队伍回指针；`CBattle_Field::GetDungeon 0x080FDCFC` 的 `0x080FDD02` 读取 CDungeon*。详见 [E33–E35](evidence.md#e33) / [v0.5 完整报告](game-owner-static.md)。
+
+**新 P0 静态问题（按收益排序）：**
+
+1. **准确锁定战场实例数据布局：** 从 `CParty::CParty` 的 `0x082A565A` 反向追踪实参，确定 `CBattle_Field` 对象实例是内嵌字段还是堆分配、何时初始化与销毁；静态推导 `CParty*` 和战场对象的地址关系。仅取匿名偏移，不上传内存 dump。
+2. **包入口、字段、权限：** `DisPatcher_SelectDungeon::process` 的 `0x081C8E0F`、`DisPatcher_MoveMap::process` 的 `0x081C54D4`、`DisPatcher_DieMob::dispatch_sig` 的 `0x081EBB73`、`DisPatcher_GetItem::process` 的 `0x081C3905` 的上游解包及注册表。优先取出消息真实 ID 和参数布局；当前只确认直接 call。
+3. **Host/P2P 与权威：** `CParty::set_host 0x0859CDBC` 的 `0x0859CDC8 mov [eax+0x70],edx` 与 `CParty::ConnectP2P 0x0859A48C`；调查 `DisPatcher_ResPeer`，辨明是否由某个客户端模拟实时怪物行为；**不能**因 `kill_monster` 存在而断言血量由服务端计算。
+4. **共享对象运行验证（需单独授权的隔离服；本阶段不执行）：** 两个同队客户端读 `CUser` 队伍索引、`CParty*`、`CBattle_Field*`、Game PID；另用同频道不同队伍对照，检验“同队共享战场状态”和断线生命周期。
+
+Q02–Q08 的实时模拟权威、网络时序、幂等与动态恢复 **仍然未知**，不可将当前 ELF 符号、函数名当作运行时证据。工作流扫描：[2026-10-12](https://github.com/hustuhao/dnf/actions/runs/38208943902)。
