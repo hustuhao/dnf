@@ -1,6 +1,6 @@
 # 掉落、奖励、结算与持久化
 
-**严格区分：普通地下城机制未知；Frida 怪物攻城活动特例有直接脚本证据。**
+**严格区分：v0.5 已确认普通地下城的部分 Game ELF 业务处理入口，但普通掉落的 RNG、并发防重与数据库事务仍未知；Frida 怪物攻城活动特例不能推广。**
 
 ## 可证实的经济与奖励线索
 
@@ -43,3 +43,14 @@ sequenceDiagram
 关注 `party_id / dungeon_run_id / kill_id / item_instance_id / settlement_id` 等**期望的关联概念**，但这些只是研究时应寻找的标识，并非已发现的真实字段或数据库表名。若没有唯一结算 ID，必须定位程序实际如何避免重复发奖；不能臆造数据库唯一约束。
 
 可保留的最小审计记录：`实验编号 / 场景触发时间 / 相关玩家 / 观测到的协议事件 / Game PID / 数据库变更前后摘要 / 是否重复`。对数据库写入使用只读观测，任何破坏性崩溃实验仅在可还原备份的隔离环境执行。
+
+## v0.5：普通地下城 Game ELF 已确认的掉落/结算入口
+
+> 上文“普通地下城机制未知”是 v0.4 静态证据不足时的描述。现在已确认普通副本的**服务器侧处理路径**，但 RNG、并发原子性、真实持久化/幂等仍然未知。
+
+- `DisPatcher_DieMob::dispatch_sig` **`0x081EBB73: call 0x085A27E8`** → `CParty::kill_monster`；`0x085A2B44: call 0x0830BC78` → `CBattle_Field::kill_monster`（H）。这可能是掉落事件关联入口，但“如何产生地面掉落”和 RNG 仍需继续反编译（U）。
+- `DisPatcher_GetItem::process` **`0x081C3905: call 0x085A3B98`** → `CParty::get_item`；方法中 **`0x085A3D19: call 0x0830D9C0`** → `CBattle_Field::get_field_item`，而 **`0x085A3DC7: call 0x086485BA`** → `CUser::Send`（H）。说明拾取动作能访问战场地面道具数据并返回消息；多玩家同时拾取防重还未确认（U）。
+- `DisPatcher_DropItem::process` **`0x081C30C0: call 0x085A63F4`** → `CParty::drop_item`（H），参数语义及其与打怪掉落的关系不能仅从名称推断（U）。
+- `Dispatcher_Select_Card::dispatch_sig` **`0x081FFA45: call 0x085AB736`** → `CParty::dungeon_clear`，后者 **`0x085AB74C: call 0x085B3520`** → `SaveCoin`，**`0x085AB7E0: call 0x085AAB84`** → `_putItemIntoUser`（H），**`0x085ABB06: call 0x085BF7FC`** → `OnSuccessedDungeonClear`（H）。结算有 Game 侧入口，但 DB 事务边界/崩溃恢复未确认（U）。
+
+全部地址出自实际 ELF32 符号与机器码，只读扫描记录：[Game ELF Actions 2026-10-12](https://github.com/hustuhao/dnf/actions/runs/38208943902)，完整调用图：[game-owner-static.md](game-owner-static.md)，[E37](evidence.md#e37)。不要再将 Frida 的特殊活动奖励充当普通副本掉落证据。
