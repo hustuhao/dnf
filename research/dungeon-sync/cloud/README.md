@@ -58,3 +58,13 @@ Codex Cloud 需要先在它的 Web/桌面界面**创建并发布可复用 Enviro
 - 每条结论应包括 ELF 的 Git blob / SHA256、符号 VA、指令/代码行号、证据级别，以及还未验证的部分。
 - 研究范围是授权的本地/云端静态分析；动态实验必须在获授权的隔离网络中。
 - 当前仓库规模较大，首次 Codespaces 检出可能耗时较长；无需为了研究将完整数据搬到新仓库。
+
+## 方案 C：GitHub Actions 可复现的只读 Game ELF 扫描（v0.5 已验证）
+
+当 Codex Cloud Runner 当前会话无法连接时，可在原研究分支通过 [`.github/workflows/dungeon-game-static-evidence.yml`](../../../.github/workflows/dungeon-game-static-evidence.yml) 运行**无需启动服务器**的静态扫描。工作流 `contents: read`，以 sparse checkout 仅取 Game/Relay/STUN 三个 ELF、Frida 与研究脚本；依次执行 `verify-env.sh`、`scan-static.sh`、`probe-game-ownership.py`、`probe-game-paths.py`，在 Actions 日志输出有限的符号地址、函数机器码与直接调用交叉引用，不上传 ELF 或原始抓包。
+
+**2026-10-12 已验证**：[第一次成功扫描](https://github.com/hustuhao/dnf/actions/runs/38208637857)、[含对象结构与业务入口的成功扫描](https://github.com/hustuhao/dnf/actions/runs/38208943902)。完整成果在 [Game ELF 静态报告](../game-owner-static.md)、[E32–E39](../evidence.md#v05完整-game-elf-只读反汇编2026-10-12)。注意 Actions 日志也可被仓库读者看到，输出只能包含已人工限定的非敏感函数名、指令和摘要信息。
+
+`probe-game-ownership.py`：输出 `CGameManager/CParty/CBattle_Field/Dispatcher` 相关符号及少量函数边界内指令。  
+`probe-game-paths.py`：输出入本、换图、怪物死亡、拾取、结算和发包函数的地址及静态直接调用引用。  
+**两者只读、不加载执行 `df_game_r`，且只证明 ELF 静态调用路径。** 要确定真实多人对局共享地址、P2P/Host 与 Game 权威边界，仍须独立授权动态环境。
