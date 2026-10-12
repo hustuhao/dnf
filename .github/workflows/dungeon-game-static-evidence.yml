@@ -39,6 +39,9 @@ jobs:
       - name: Enumerate dungeon ownership symbols and disassemble key methods
         shell: bash
         run: python3 research/dungeon-sync/cloud/probe-game-ownership.py
+      - name: Probe party battle-field pointers and dispatcher call sites
+        shell: bash
+        run: python3 research/dungeon-sync/cloud/probe-game-paths.py
       - name: Print bounded Game ELF evidence (no binary artifact)
         shell: bash
         run: |
