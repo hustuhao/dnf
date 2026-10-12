@@ -123,3 +123,40 @@
 ### E31
 
 **已证实·STUN MTU thread 的长度回包。** `stunProcess3(0x401674)` 在 `0x40169D` 使用缓冲容量 `0x5DC=1500`，`0x4016EB` 调 `getMessage(0x401AC0)`，`0x4016F4–0x4016F7` 将收到的实际字节数截成 16 位写入两个字节，`0x401712–0x401717` 以 `sendMessage(0x40189A)` 发回长度为 `2` 的消息。**未验证路径 MTU 发现算法或返回值字节序。**
+
+
+## v0.5：完整 Game ELF 只读反汇编（2026-10-12）
+
+基线：`df_game_r` Git blob `f7a65ba7bc723e96fadeae07e87b72e05560d989`、SHA256 `8859c99d8290dc5fb58151444138cf2697b2bfff12d47d6159596a03f20b5261`；ELF32/x86 `ET_EXEC`，带符号与调试信息。机器码和直接交叉引用见 [Actions 成功扫描](https://github.com/hustuhao/dnf/actions/runs/38208943902)、[独立扫描报告](game-owner-static.md)。下述 H 指函数与指令直接吻合，M 指可信结构推断，U 指未知。不提交原始机器码 dump。
+
+### E32：Game ELF / Frida 地址确实匹配此版本（H）
+
+`cloud/verify-env.sh` 与 `cloud/scan-static.sh` 在云端扫描完成：`file` 报 ELF32 Intel 80386、not stripped、with debug_info；`readelf` 提供 `PT_LOAD(R E)` 起始 `0x08048000`，大小 `0x1320E61`。Frida `ptr(...)` 共 162 次，其中 156 次落在可执行段，6 次落在非执行段。注意脚本仅按段地址分类；但 `nm/objdump` 已进一步独立核验 `CDungeon::get_index(0x080FDCF0)`、`CParty::get_user(0x08145764)`、`CParty::UseAncientDungeonItems(0x0859EAC2)`、`MapInfo::Add_Mob(0x08151612)`、`CUser::GetParty(0x0865514C)`、`CUser::Send(0x086485BA)`、`PacketBuf::get_int(0x0858D27E)` 函数身份。**161/162 或 156/162 都不能据此定义为 Hook 正确率。**
+
+### E33：Game 进程内 `CGameManager` 管理共享队伍对象（H）
+
+`CGameManager::GetParty()` 在 `0x08294E21: call 0x082B0E5A` 获取 `StaticPool<CParty,600>` 对象，在 `0x08294EE2: call 0x082B112A` 使用 `hash_map<int,CParty*>::operator[]`。按 ID 查队伍的 `CGameManager::GetParty(int)` (`0x08294F32`) 在 `0x08294F3B: lea ecx,[eax+0x270]` 取管理器容器字段，`0x08294F52: call 0x082B10C4` 调用 `hash_map::find`，`0x08294F9D: mov eax,[eax+0x4]` 读取 `CParty*`。释放 `CGameManager::PutParty(CParty*)` (`0x08294FC8`) 在 `0x0829505A` 调 `hash_map::erase`，`0x08295072` 调 `StaticPool<CParty,600>::Free`。这是**实际对象注册、查找、回收代码**；`600` 仅为池模板容量。
+
+### E34：玩家通过队伍索引回查同一注册表（H）
+
+`CUser::GetParty` (`0x0865514C`) 的 `0x08655156: movzx eax,WORD PTR [eax+0x8d004]` 读取用户保存的队伍索引；`0x0865516F: call 0x080CC18E` 获取 `G_CGameManager`；`0x0865517B: call 0x08294F32` 根据索引得到 `CParty*`。`CParty::join_user` (`0x0859B2B6`) 的 `0x0859B3AF: call 0x085BFD96` 调用 `CUser::SetPartyIndex`。`CParty::get_user` (`0x08145764`) 在 `0x08145773` 将 slot*3 再左移 3 位，在 `0x08145779` 加 `0x78`，`0x0814577C` 取指针，即 `CParty+0x78+slot*24` 的队员记录起始字段。**“同一频道两个已入队玩家的查找目标是同一 `CParty`”为 M 静态结构推断**，还未核实双客户端对象地址。
+
+### E35：队伍与战场 MapInfo 的真实对象边（H / M）
+
+`CParty::CParty` 的 `0x082A565A: call 0x082A43BE` 调用 `CBattle_Field::SetParty(CParty*)`；`0x082A43C7: mov DWORD PTR [eax],edx` 把队伍指针写入 `CBattle_Field` 首字段（H）。`CBattle_Field::GetDungeon` (`0x080FDCFC`) 的 `0x080FDD02: mov eax,[eax+0x188]` 读取 `CDungeon*`（H）；`CBattle_Field::GetCurrentMapInfo` 的 `0x0822CBF4: call 0x08300DA6` 读取当前坐标、`0x0822CC15: call 0x0822CC48` 获取地图信息（H）。`CBattle_Field` 由谁分配及是否内嵌在 `CParty` 尚为 U；关联为 H，完整所有权模型为 M。
+
+### E36：入本/换图的实际 Dispatcher 调用边（H）
+
+`DisPatcher_SelectDungeon::process` 的 `0x081C8E0F: call 0x085A0954` 进入 `CParty::dungeon_start`。`DisPatcher_MoveMap::process` 的 `0x081C54D4: call 0x085A8F4E` 进入 `CParty::move_map`；其中 `0x085A9143: call 0x08308AE6` 调 `CBattle_Field::MoveMap`、`0x085A910B: call 0x0827A96E` 调路径异常计数检查。`CParty::checkInoutConditionDungeon` 的 `0x085ABF3B: call 0x0859EAC2` 调 `UseAncientDungeonItems`。Dispatcher 名称与业务结构是 ELF 真实符号，**尚未确认上游网络 command/opcode**。
+
+### E37：怪物死亡、道具和结算在 Game 上具有处理路径（H）
+
+`DisPatcher_DieMob::dispatch_sig` 的 `0x081EBB73: call 0x085A27E8` → `CParty::kill_monster`，该函数的 `0x085A2B44: call 0x0830BC78` → `CBattle_Field::kill_monster`。`DisPatcher_GetItem::process` 的 `0x081C3905: call 0x085A3B98` → `CParty::get_item`，其 `0x085A3D19: call 0x0830D9C0` → `CBattle_Field::get_field_item`。`Dispatcher_Select_Card::dispatch_sig` 的 `0x081FFA45: call 0x085AB736` → `CParty::dungeon_clear`，同目标亦被定时器在 `0x08633160` 调用；清算内部 `0x085AB74C: call 0x085B3520`（`SaveCoin`）和 `0x085AB7E0: call 0x085AAB84`（`_putItemIntoUser`）存在。**只证实服务器处理死亡报告/掉落拾取/奖励；不能推出怪物每次受击/HP、AI、技能或客户端移动帧的权威。**
+
+### E38：明确的 Game→队伍成员发送调用（H）
+
+`CParty::send_host_info` 的 `0x0859CE5C: call 0x0859D14E` → `CParty::send_to_party(PacketGuard&)`；群发函数先在 `0x0859D16A: call 0x085B4D12` 检查用户有效性，在 `0x0859D194: call 0x086485BA` 发送 `CUser::Send(PacketGuard&)`。这证明 Game 可逐用户发送队伍报文，不说明普通战斗 UDP/P2P 是否也使用该接口。
+
+### E39：Host/P2P 状态存在，但战斗权威仍未确定（H / U）
+
+`CParty::set_host` (`0x0859CDBC`) 中 `0x0859CDC2: mov edx,[eax+0x74]`、`0x0859CDC8: mov [eax+0x70],edx`，保存 Host 相关字段；同一二进制另含 `CParty::ConnectP2P` (`0x0859A48C`)、`CParty::send_party_ipinfo` (`0x0859CEA2`) 和 `DisPatcher_ResPeer::dispatch_sig` 对队伍创建/加入的直接调用。**存在 Host/P2P 管理代码（H），Host 负责哪些位置、伤害、AI、死亡事件（U）。** 文件级进一步证据见 [v0.5 调用图](game-owner-static.md)。
