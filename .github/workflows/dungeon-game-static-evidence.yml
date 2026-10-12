@@ -36,6 +36,9 @@ jobs:
       - name: Run read-only static scan
         shell: bash
         run: bash research/dungeon-sync/cloud/scan-static.sh
+      - name: Enumerate dungeon ownership symbols and disassemble key methods
+        shell: bash
+        run: python3 research/dungeon-sync/cloud/probe-game-ownership.py
       - name: Print bounded Game ELF evidence (no binary artifact)
         shell: bash
         run: |
