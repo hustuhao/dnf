@@ -1,9 +1,17 @@
-# DNF 多人地下城实时同步机制研究（静态研究 v0.4）
+# DNF 多人地下城实时同步机制研究（Game ELF 静态研究 v0.5）
 
 > 基线：hustuhao/dnf，`main` @ `1d59eeafeaa105a3c109091c3d5fc061a30bbf19`；分析日期：2026-10-11。  
-> 状态：**研究 v0.4**。已分析配置/Frida、Relay/STUN ELF 基本符号，并对 Relay 几个确定函数进行了机器码反汇编；未获得 Game ELF、未运行服务端或抓包。本文讨论的是**本仓库封装的 DNF 服务端版本**，不是所有 DNF 官方版本的通用结论。
+> 状态：**研究 v0.5（2026-10-12）**。已在 GitHub Actions 对完整 `df_game_r` ELF 进行静态 `readelf/nm/objdump` 检查，补全队伍注册表、用户查找、战场关系及副本业务分发直接调用；仍未运行游戏服务或抓包。本文仅适用于本仓库 ELF 基线。下方 v0.4 条目保留作历史阶段记录。
 
-## 先说结论
+## v0.5 关键结论（优先阅读）
+
+**已证实（完整 Game ELF 机器码）**：`df_game_r` 的 `CGameManager` 通过 `StaticPool<CParty,600>` 分配队伍并通过 `hash_map<int,CParty*>` 注册，`CUser::GetParty` 从用户对象读队伍索引后在管理器中查询 `CParty*`；`CParty` 构造阶段给 `CBattle_Field` 设置反向 `CParty*`，战场对象提供 `GetDungeon` / `GetCurrentMapInfo`。 `DisPatcher_SelectDungeon` / `MoveMap` / `DieMob` / `GetItem` / `Select_Card` 有直连 `CParty` 与战场方法的机器码调用。
+
+**最可信的静态模型（中置信）**：每频道 `df_game_r` 通过 `CParty` 关联组队成员及副本级业务状态，`CBattle_Field` 承载相关地图/战场数据。但双客户端对象地址、每队唯一副本 ID 与 `CBattle_Field` 的分配方式仍未动态/完整数据流确认；**普通移动帧、逐次伤害计算、怪物 AI 权威属于未知**，不能据 Game 有死亡处理函数就断言服务端帧模拟。
+
+完整函数地址、指令、置信度、两张 Mermaid 图及后续验证见 **[Game ELF v0.5 静态调用链](game-owner-static.md)**、[E32–E39](evidence.md#v05完整-game-elf-只读反汇编2026-10-12)，[Actions 验证记录](https://github.com/hustuhao/dnf/actions/runs/38208943902)。
+
+## 先说结论（以下 v0.4 历史基线）
 
 | 命题 | 证据级别 | 证据 |
 |---|---|---|
@@ -37,7 +45,7 @@
 
 ## 研究边界和缺口
 
-- 核心 `df_game_r` 是约 36 MB 预编译程序。**本版尚未读取 Game ELF 的符号、段信息、CFG 或反汇编**；`frida.js` 中的硬编码地址仅作为脚本中存在的线索。
+- 核心 `df_game_r` 是约 36 MB 预编译程序。**v0.4 时**尚未读取 Game ELF；**v0.5 已获取真实 ELF 符号和局部反汇编**，但未完成全程序 CFG、全量间接跳转与动态协议确认。
 - `doc/台服dnf服务架构.docx` 确实位于仓库，但本轮连接未能获取其二进制正文，未将其内容作为证据。
 - 未验证客户端版本、PVF 内容、客户端发包代码、协议 ID、实测 UDP/TCP 流量。
 - 请勿把 `frida.js` 中“怪物攻城”活动奖励逻辑扩展成普通地下城掉落、结算机制。
@@ -53,7 +61,7 @@
 
 在 [binary-static.md](binary-static.md) 中已记录 Relay/STUN 的真实 ELF 格式、Blob SHA 与符号表地址。Relay 的 `TCPUser::onPacketParse`、`PacketHeaderS2S`、TCP/UDP/S2S `dispatch`、`setAuthenticated` 符号确实存在，STUN 也存在三个 `stunProcess` 入口及 RealIP/NAT/MTU 线程日志。这说明 Relay 有包解析和鉴权相关代码，而不能再仅根据服务名称概括为“透明转发”；**但尚无证据说明其理解技能或伤害的业务内容**。
 
-`df_game_r` 约 36 MB，其文件正文受当前 GitHub 读取接口限制，**没有验证 Game ELF 的任何 Frida 地址**。已附带 [只读 ELF 检查脚本](tools/inspect-game-elf.sh) 供本地运行，核心研究问题仍见 [open-questions.md](open-questions.md)。
+`df_game_r` 约 36 MB。此段描述 **v0.2 的历史连接器限制**；v0.5 已通过 GitHub Actions 验证 Game ELF 和若干 Frida 入口。已附带 [只读 ELF 检查脚本](tools/inspect-game-elf.sh) 供本地运行，核心研究问题仍见 [open-questions.md](open-questions.md)。
 
 ## v0.3：Relay 消息控制流确认
 
