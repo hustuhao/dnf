@@ -46,3 +46,35 @@ stateDiagram-v2
 ## 仍未知
 
 实例创建、分配及销毁函数，队伍到实例的映射，副本房间切换、掉线超时、Host 变化，玩家重进条件，游戏逻辑线程/事件循环数量。
+
+
+## v0.5：已确认的生命周期调用边（2026-10-12）
+
+此前章节的「候选状态机」仍不是完整状态机；但现在对**具体入口**已有真正机器码证据，参见 [Game ELF 全文](game-owner-static.md) 和 [E33–E38](evidence.md#e33)。
+
+| 状态相关操作 | 直接反汇编证据 | 置信度 |
+|---|---|---|
+| 分配队伍 | `CGameManager::GetParty() 0x08294E10` 中 `0x08294E21 call 0x082B0E5A` 分配 CParty | H |
+| 绑定成员 | `CParty::join_user 0x0859B2B6` 中 `0x0859B3AF call 0x085BFD96` 设置 CUser 队伍索引 | H |
+| 开始副本 | `DisPatcher_SelectDungeon::process` 的 `0x081C8E0F call 0x085A0954` → `CParty::dungeon_start` | H |
+| 换图 | `DisPatcher_MoveMap::process` 的 `0x081C54D4 call 0x085A8F4E` → `CParty::move_map`；该方法在 `0x085A9143 call 0x08308AE6` → `CBattle_Field::MoveMap` | H |
+| 选卡与通关 | `Dispatcher_Select_Card::dispatch_sig` 的 `0x081FFA45 call 0x085AB736` → `CParty::dungeon_clear`；定时器 `0x08633160` 亦调此函数 | H |
+| 道具写回 | `CParty::dungeon_clear` 在 `0x085AB7E0 call 0x085AAB84` → `_putItemIntoUser`，`0x085AB74C call 0x085B3520` → `SaveCoin` | H |
+| 回收队伍 | `CGameManager::PutParty 0x08294FC8` 内 `0x0829505A` 调 hash_map::erase、`0x08295072` 调 Pool::Free | H |
+
+因此**可以肯定 `CParty` 接收副本开始/换图/通关处理并与 `CBattle_Field` 协作**，仍不能将其简单等同为副本每帧模拟器。
+
+```mermaid
+flowchart TD
+  ALLOC["GetParty 0x08294E10"] -->|"Acquire"| PARTY["CParty"]
+  JOIN["join_user 0x0859B2B6"] -->|"SetPartyIndex"| USER["CUser"]
+  START["SelectDungeon::process 0x081C8E0F"] -->|"call"| DSTART["CParty::dungeon_start 0x085A0954"]
+  MOVE["MoveMap::process 0x081C54D4"] -->|"call"| PMOVE["CParty::move_map 0x085A8F4E"]
+  PMOVE -->|"call"| BFMOVE["CBattle_Field::MoveMap 0x08308AE6"]
+  CARD["Select_Card::dispatch_sig 0x081FFA45"] -->|"call"| CLEAR["CParty::dungeon_clear 0x085AB736"]
+  TIMER["TimerDungeonClear 0x08633160"] -->|"call"| CLEAR
+  CLEAR -->|"call"| REWARD["_putItemIntoUser 0x085AAB84"]
+  RELEASE["CGameManager::PutParty 0x08294FC8"] -->|"erase / Free"| POOL["StaticPool<CParty,600>"]
+```
+
+未知项：以上并未确认 dispatcher 的**上游 opcode 与消息来源**、`dungeon_start` 内资源创建的完整路径、MapInfo 的真实分配/回收、Host 改选、断线重连后的对象留存及结算幂等条件。并且 **`CDungeon::get_index` 返回的类型/配置索引绝不能当作唯一运行实例 ID**。
