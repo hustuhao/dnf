@@ -40,6 +40,18 @@ targets = [
     "CParty::send_to_party(",
     "DisPatcher_DieMob::dispatch_sig(",
     "DisPatcher_ResPeer::dispatch_sig(",
+    "Dispatcher_SDC_Damage_Check::dispatch_sig(",
+    "Dispatcher_SDC_ActiveStatus_Damage_Check::dispatch_sig(",
+    "DisPatcher_UseSkill::read(",
+    "DisPatcher_UseSkill::process(",
+    "CParty::OnUsedSkill(",
+    "Dispatcher_ChangeHp::dispatch_sig(",
+    "CTraceMobDieHack::addMonsterDamage(",
+    "CParty::setMonsterMoveHack(",
+    "CParty::set_host(",
+    "CParty::send_party_ipinfo(",
+    "DisPatcher_ReqPeer::dispatch_sig(",
+    "Dispatcher_ChangeHost::dispatch_sig(",
 ]
 print("BATTLE_PROBE_V1: STATIC ONLY", ELF)
 print("=== DAMAGE/HIT/SKILL/PEER RELATED SYMBOL SHORTLIST ===")

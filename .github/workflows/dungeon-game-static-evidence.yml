@@ -42,6 +42,7 @@ jobs:
       - name: Probe party battle-field pointers and dispatcher call sites
         shell: bash
         run: python3 research/dungeon-sync/cloud/probe-game-paths.py
+      # v2: include incoming damage-check and skill request handlers.
       - name: Trace battle reporting, damage validation and host paths
         shell: bash
         run: python3 research/dungeon-sync/cloud/probe-combat-authority.py
