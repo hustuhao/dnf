@@ -1,7 +1,13 @@
-# DNF 多人地下城实时同步机制研究（Game ELF 静态研究 v0.5）
+# DNF 多人地下城实时同步机制研究（Game ELF 静态研究 v0.6）
 
 > 基线：hustuhao/dnf，`main` @ `1d59eeafeaa105a3c109091c3d5fc061a30bbf19`；分析日期：2026-10-11。  
-> 状态：**研究 v0.5（2026-10-12）**。已在 GitHub Actions 对完整 `df_game_r` ELF 进行静态 `readelf/nm/objdump` 检查，补全队伍注册表、用户查找、战场关系及副本业务分发直接调用；仍未运行游戏服务或抓包。本文仅适用于本仓库 ELF 基线。下方 v0.4 条目保留作历史阶段记录。
+> 状态：**研究 v0.6（2026-10-14）**。已在 GitHub Actions 对完整 `df_game_r` ELF 进行静态 `readelf/nm/objdump` 检查，补全队伍注册表、用户查找、战场关系及副本业务分发直接调用；仍未运行游戏服务或抓包。本文仅适用于本仓库 ELF 基线。下方 v0.4 条目保留作历史阶段记录。
+
+## v0.6：多人战斗核心处理器已反汇编（2026-10-14）
+
+**新证据：** 两轮 [Game ELF 战斗静态探针](https://github.com/hustuhao/dnf/actions/runs/38506571907)、[技能/伤害详细探针](https://github.com/hustuhao/dnf/actions/runs/38506766447) 已成功完成。发现：\`DisPatcher_UseSkill::read/process\` → \`CHackLog_InvalidUsingSkill::IsValidUsingSkill\` → \`CParty::use_skill\` → \`CParty::OnUsedSkill\`；另一条 \`Dispatcher_SDC_Damage_Check\` → \`computeHpDamageSDC\` → \`CBattle_Field::SetDamagedPacketCnt / SetDamageValue\`。死亡报告处理器 \`DieMob\` → \`CParty::kill_monster\`，再经怪物记录、命中统计和反作弊检查，确认服务端不仅负责发奖，还处理**部分技能与伤害检查业务**。
+
+**依然未知：** 伤害是客户端/Host 算出还是 Game 最终裁决、P2P 中具体哪些是命中/动画、怪物 AI 执行地。注意 \`Dispatcher_ChangeHp\` 的直接调用目标属于 \`pvp_assault\`，不能作为普通 PvE HP 权威的证据。阅读 [v0.6 战斗专报](combat-authority-v0.6.md)、[E40–E43](evidence.md#e40)。
 
 ## v0.5 关键结论（优先阅读）
 

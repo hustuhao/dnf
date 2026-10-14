@@ -62,3 +62,14 @@ sequenceDiagram
 - `CParty::set_host 0x0859CDBC` 的 **`0x0859CDC8: mov [eax+0x70],edx`**，以及 `CParty::ConnectP2P 0x0859A48C`：Host/P2P 协调线索已确证存在（H）。不能推断首领等于主机、主机处理怪物 AI、Game 只转发或 Game 全权计算（均 U）。
 
 **目前最重要的权威分界：** Game 确实实现“怪物死亡事件及奖惩结果的处理”，但是怪物死亡的**产生来源**（客户端报告/Host 结果/服务器计算）及相关校验、伤害计算/逐帧同步未定位（U）。下轮优先反编译 `DisPatcher_DieMob` 读包字段与 `CBattle_Field::kill_monster` 条件分支，再结合 Host/P2P 事件分发证据。
+
+## v0.6：真正的普通战斗请求与伤害检查（2026-10-14）
+
+不再局限于特殊怪物攻城 Hook。已通过完整 Game ELF 直接反汇编确认：
+
+- **技能入站校验**：\`DisPatcher_UseSkill::read(0x081CAC5E)\` 解包 byte、byte、short、short；\`process(0x081CADAA)\` 在 \`0x081CAE89\` 调用 \`CHackLog_InvalidUsingSkill::IsValidUsingSkill\`，\`0x081CAF15\` 调用 \`CParty::use_skill\`，后者 \`0x085A77F9\` 调用 \`CParty::OnUsedSkill\`。[E40](evidence.md#e40)
+- **SDC 伤害检查**：\`Dispatcher_SDC_Damage_Check(0x081E9E84)\` 读取 byte/int/binary，\`0x081EA085\` 调 \`computeHpDamageSDC\`，\`0x081EA11E\`、\`0x081EA143\` 更新战场按怪物查询的受伤包计数与伤害字段。主动状态伤害还有另一条相似处理器。[E41](evidence.md#e41)
+- **死亡与反作弊**：\`DisPatcher_DieMob(0x081EB0C4)\` 解析死亡报文，并经 \`CParty::kill_monster\`、\`OnKilledMonster\`、\`CTraceMobDieHack::addMonsterDamage\` / \`CHackAnalyzer\` 处理，关卡开始/结束还维护命中计数。[E42](evidence.md#e42)
+- **避免误读**：\`Dispatcher_ChangeHp\` 属于 \`pvp_assault::CAssaultMgr::OnChangeHp\` 的调用路径，不能当作普通地下城伤害权威的证据。Host 变更处理器调用 \`CParty::change_manager\`，也不能据此断言 Host 模拟怪物 AI。[E43](evidence.md#e43)
+
+**阶段判断：** Game 进程参与技能合法性和伤害相关数据检查，管理怪物死亡/奖励相关状态；**普通战斗每次命中、最终 HP 扣减、动画同步是否依赖 P2P、Host 具体职责仍未知**。完整调用表/图见 [combat-authority-v0.6.md](combat-authority-v0.6.md)。

@@ -160,3 +160,20 @@
 ### E39：Host/P2P 状态存在，但战斗权威仍未确定（H / U）
 
 `CParty::set_host` (`0x0859CDBC`) 中 `0x0859CDC2: mov edx,[eax+0x74]`、`0x0859CDC8: mov [eax+0x70],edx`，保存 Host 相关字段；同一二进制另含 `CParty::ConnectP2P` (`0x0859A48C`)、`CParty::send_party_ipinfo` (`0x0859CEA2`) 和 `DisPatcher_ResPeer::dispatch_sig` 对队伍创建/加入的直接调用。**存在 Host/P2P 管理代码（H），Host 负责哪些位置、伤害、AI、死亡事件（U）。** 文件级进一步证据见 [v0.5 调用图](game-owner-static.md)。
+
+### E40：普通技能入站字段和合法性检查（H）
+
+来自原始 \`df_game_r\`（Git blob \`f7a65ba7bc723e96fadeae07e87b72e05560d989\`）机器码。\`DisPatcher_UseSkill::read(0x081CAC5E)\` 在 \`0x081CAC7A/0x081CACBF\` 调 \`PacketBuf::get_byte\`，在 \`0x081CAD04/0x081CAD46\` 调 \`get_short\`；\`DisPatcher_UseSkill::process(0x081CADAA)\` 的 \`0x081CAE7E\` 构造 \`SKILL_USING_VALIDATE_INFO\`，\`0x081CAE89\` 调 \`CHackLog_InvalidUsingSkill::IsValidUsingSkill\`，\`0x081CAF15\` 调 \`CParty::use_skill(0x085A77D8)\`，其 \`0x085A77F9\` 调 \`CParty::OnUsedSkill(0x085B5F8E)\`。本证据只证明技能消息处理和合法性检查**存在于代码**，不证明实时视觉技能全由 Game 同步。[run 38506766447](https://github.com/hustuhao/dnf/actions/runs/38506766447)。
+
+### E41：SDC 伤害检查读取数据并定位服务端怪物记录（H）
+
+\`Dispatcher_SDC_Damage_Check::dispatch_sig(0x081E9E84)\` 的 \`0x081E9EA7/0x081E9F4A/0x081E9FC9\` 分别调 \`PacketBuf::get_byte/get_int/get_binary\`；\`0x081EA085\` 调 \`computeHpDamageSDC(0x08095C32)\`；\`0x081EA0D8\` 调 \`CHackAnalyzer::addServerHackCnt\`；\`0x081EA11E/0x081EA143\` 调 \`CBattle_Field::SetDamagedPacketCnt(0x08308F4E)\` / \`SetDamageValue(0x08308FF8)\`。两个 Setter 都经 \`GetCurrentMapInfo\` / \`std::map<int,map_monster>::find\` 找到当前战场的怪物数据。主动状态伤害检查处理器 \`0x081EA16E\` 同样调这两个 Setter。**有伤害相关服务端计算/计数，不代表最终怪物 HP 的权威由 Game 决定。** [run 38506766447](https://github.com/hustuhao/dnf/actions/runs/38506766447)。
+
+### E42：怪物死亡报告处理与额外反作弊检查（H）
+
+\`DisPatcher_DieMob::dispatch_sig(0x081EB0C4)\` 多次读取 byte/int/short 并进行队伍检查，\`0x081EB686\` 调 \`CParty::setMonsterMoveHack\`，\`0x081EBB73\` 调 \`CParty::kill_monster\`，\`0x081EBC6D\` 调 \`Secu_HackLogCheck::DieMob\`；\`CParty::kill_monster\` 的 \`0x085A2D11\` 调 \`OnKilledMonster\`，后者在 \`0x085B5AC4\` 调 \`CTraceMobDieHack::addMonsterDamage\`，另有 \`CHackAnalyzer::addServerHackCnt\` 与 \`CBattle_Field::onClearMap\` 调用。 \`CParty::CheckHackAverageHitCount\` 在 \`dungeon_clear\` / \`giveup_game\` / \`party_dungeon_fail\` 等调用。**报告验证/处罚细节仍需全函数逆向。** [run 38506571907](https://github.com/hustuhao/dnf/actions/runs/38506571907)、[run 38506766447](https://github.com/hustuhao/dnf/actions/runs/38506766447)。
+
+### E43：限定 Host/PvP 等相邻机制的结论（H/U）
+
+\`Dispatcher_ChangeHost::dispatch_sig(0x08204C1E)\` 的 \`0x08204D5C\` 调 \`CParty::change_manager\`；\`CParty::send_host_info\` 可向队员群发 Host 信息；**Host 是否负责 PvE 实时 AI/伤害仍未知**。\`Dispatcher_ChangeHp::dispatch_sig(0x0820748A)\` 的 \`0x0820752B\` 调 \`pvp_assault::CAssaultMgr::OnChangeHp(0x082EF570)\`，**不能将其用作普通 PvE 血量同步机制的证据**。反汇编来源 [run 38506766447](https://github.com/hustuhao/dnf/actions/runs/38506766447)。
+

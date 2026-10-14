@@ -95,3 +95,13 @@
 4. **共享对象运行验证（需单独授权的隔离服；本阶段不执行）：** 两个同队客户端读 `CUser` 队伍索引、`CParty*`、`CBattle_Field*`、Game PID；另用同频道不同队伍对照，检验“同队共享战场状态”和断线生命周期。
 
 Q02–Q08 的实时模拟权威、网络时序、幂等与动态恢复 **仍然未知**，不可将当前 ELF 符号、函数名当作运行时证据。工作流扫描：[2026-10-12](https://github.com/hustuhao/dnf/actions/runs/38208943902)。
+
+## v0.6 新增 P0：多人实时战斗权威边界
+
+**Q15：\`computeHpDamageSDC\` 具体计算什么？** [E41](evidence.md#e41) 证明它被 \`Dispatcher_SDC_Damage_Check\` 调用，但必须反编译该函数的数据输入、结果使用和附近 \`SetDamageValue\` 的字段写入，区分“服务器重算或校验伤害”与“服务端拥有并扣减权威 HP”。建议针对 \`0x08095C32\` 和 \`0x08308FF8\` 做局部 CFG 与类型恢复。
+
+**Q16：技能表现/命中/怪物位置哪些通过 P2P/Host？** Game 已有技能上报及 Host 信息代码，但仍需已授权双客户端在不同 NAT 条件下进行录屏+pcap 对齐，并分析客户端发送游戏消息与 peer 传输实现。只凭 Game ELF 不得宣称所有实时动作都经过服务器。
+
+**Q17：\`MSG_MONSTER_DIE\` 的接受条件和去重机制是什么？** 根据 [E42](evidence.md#e42) 对 \`DisPatcher_DieMob\`、\`CParty::kill_monster\`、\`CBattle_Field::kill_monster\` 做控制流/状态字段与协议解析研究，检查 monster UID、重复死亡、damage check、可能的 Host 检查与结算唯一性。不可将存在检查函数等同于防作弊和幂等性已经完全有效。
+
+**排除误判：** \`Dispatcher_ChangeHp\` 直接调用的是 PvP Assault 处理器，不能替代上述普通地下城 HP 研究。[v0.6 战斗专报](combat-authority-v0.6.md)。
