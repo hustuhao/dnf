@@ -46,6 +46,9 @@ jobs:
       - name: Trace battle reporting, damage validation and host paths
         shell: bash
         run: python3 research/dungeon-sync/cloud/probe-combat-authority.py
+      - name: Examine SDC compute function and map-monster field writes
+        shell: bash
+        run: python3 research/dungeon-sync/cloud/probe-damage-flow.py
       - name: Print bounded Game ELF evidence (no binary artifact)
         shell: bash
         run: |
