@@ -1,7 +1,7 @@
-# 证据记录（静态 v0.4）
+# 证据记录（Game ELF 静态 v0.7）
 
 - **固定基线：** `main` commit `1d59eeafeaa105a3c109091c3d5fc061a30bbf19`
-- **方法：** GitHub 连接器读取仓库文本、目录与 Git tree；人工交叉检查配置和 Frida 入口。已解析 Relay/STUN 的 ELF 头、实际符号和字符串；仍未获得 Game ELF 字节、未反汇编、未运行程序或抓包。
+- **方法：** GitHub 连接器读取仓库文本、目录与 Git tree；人工交叉检查配置和 Frida 入口。已解析 Relay/STUN ELF 和 Game ELF 的符号及机器码；已在 GitHub Actions 环境中反汇编 Game 相关函数，未运行服务端、未抓包。
 - **分级纪律：** “已证实”可指**确实存在某行配置/代码/文档陈述**，而不自动代表运行时行为已验证。Frida 的地址归于**脚本给出的标注**，非独立核验结果。
 - 链接固定到上述 commit，避免随主分支漂移。
 
@@ -163,17 +163,29 @@
 
 ### E40：普通技能入站字段和合法性检查（H）
 
-来自原始 \`df_game_r\`（Git blob \`f7a65ba7bc723e96fadeae07e87b72e05560d989\`）机器码。\`DisPatcher_UseSkill::read(0x081CAC5E)\` 在 \`0x081CAC7A/0x081CACBF\` 调 \`PacketBuf::get_byte\`，在 \`0x081CAD04/0x081CAD46\` 调 \`get_short\`；\`DisPatcher_UseSkill::process(0x081CADAA)\` 的 \`0x081CAE7E\` 构造 \`SKILL_USING_VALIDATE_INFO\`，\`0x081CAE89\` 调 \`CHackLog_InvalidUsingSkill::IsValidUsingSkill\`，\`0x081CAF15\` 调 \`CParty::use_skill(0x085A77D8)\`，其 \`0x085A77F9\` 调 \`CParty::OnUsedSkill(0x085B5F8E)\`。本证据只证明技能消息处理和合法性检查**存在于代码**，不证明实时视觉技能全由 Game 同步。[run 38506766447](https://github.com/hustuhao/dnf/actions/runs/38506766447)。
+来自原始 `df_game_r`（Git blob `f7a65ba7bc723e96fadeae07e87b72e05560d989`）机器码。`DisPatcher_UseSkill::read(0x081CAC5E)` 在 `0x081CAC7A/0x081CACBF` 调 `PacketBuf::get_byte`，在 `0x081CAD04/0x081CAD46` 调 `get_short`；`DisPatcher_UseSkill::process(0x081CADAA)` 的 `0x081CAE7E` 构造 `SKILL_USING_VALIDATE_INFO`，`0x081CAE89` 调 `CHackLog_InvalidUsingSkill::IsValidUsingSkill`，`0x081CAF15` 调 `CParty::use_skill(0x085A77D8)`，其 `0x085A77F9` 调 `CParty::OnUsedSkill(0x085B5F8E)`。本证据只证明技能消息处理和合法性检查**存在于代码**，不证明实时视觉技能全由 Game 同步。[run 38506766447](https://github.com/hustuhao/dnf/actions/runs/38506766447)。
 
 ### E41：SDC 伤害检查读取数据并定位服务端怪物记录（H）
 
-\`Dispatcher_SDC_Damage_Check::dispatch_sig(0x081E9E84)\` 的 \`0x081E9EA7/0x081E9F4A/0x081E9FC9\` 分别调 \`PacketBuf::get_byte/get_int/get_binary\`；\`0x081EA085\` 调 \`computeHpDamageSDC(0x08095C32)\`；\`0x081EA0D8\` 调 \`CHackAnalyzer::addServerHackCnt\`；\`0x081EA11E/0x081EA143\` 调 \`CBattle_Field::SetDamagedPacketCnt(0x08308F4E)\` / \`SetDamageValue(0x08308FF8)\`。两个 Setter 都经 \`GetCurrentMapInfo\` / \`std::map<int,map_monster>::find\` 找到当前战场的怪物数据。主动状态伤害检查处理器 \`0x081EA16E\` 同样调这两个 Setter。**有伤害相关服务端计算/计数，不代表最终怪物 HP 的权威由 Game 决定。** [run 38506766447](https://github.com/hustuhao/dnf/actions/runs/38506766447)。
+`Dispatcher_SDC_Damage_Check::dispatch_sig(0x081E9E84)` 的 `0x081E9EA7/0x081E9F4A/0x081E9FC9` 分别调 `PacketBuf::get_byte/get_int/get_binary`；`0x081EA085` 调 `computeHpDamageSDC(0x08095C32)`；`0x081EA0D8` 调 `CHackAnalyzer::addServerHackCnt`；`0x081EA11E/0x081EA143` 调 `CBattle_Field::SetDamagedPacketCnt(0x08308F4E)` / `SetDamageValue(0x08308FF8)`。两个 Setter 都经 `GetCurrentMapInfo` / `std::map<int,map_monster>::find` 找到当前战场的怪物数据。主动状态伤害检查处理器 `0x081EA16E` 同样调这两个 Setter。**有伤害相关服务端计算/计数，不代表最终怪物 HP 的权威由 Game 决定。** [run 38506766447](https://github.com/hustuhao/dnf/actions/runs/38506766447)。
 
 ### E42：怪物死亡报告处理与额外反作弊检查（H）
 
-\`DisPatcher_DieMob::dispatch_sig(0x081EB0C4)\` 多次读取 byte/int/short 并进行队伍检查，\`0x081EB686\` 调 \`CParty::setMonsterMoveHack\`，\`0x081EBB73\` 调 \`CParty::kill_monster\`，\`0x081EBC6D\` 调 \`Secu_HackLogCheck::DieMob\`；\`CParty::kill_monster\` 的 \`0x085A2D11\` 调 \`OnKilledMonster\`，后者在 \`0x085B5AC4\` 调 \`CTraceMobDieHack::addMonsterDamage\`，另有 \`CHackAnalyzer::addServerHackCnt\` 与 \`CBattle_Field::onClearMap\` 调用。 \`CParty::CheckHackAverageHitCount\` 在 \`dungeon_clear\` / \`giveup_game\` / \`party_dungeon_fail\` 等调用。**报告验证/处罚细节仍需全函数逆向。** [run 38506571907](https://github.com/hustuhao/dnf/actions/runs/38506571907)、[run 38506766447](https://github.com/hustuhao/dnf/actions/runs/38506766447)。
+`DisPatcher_DieMob::dispatch_sig(0x081EB0C4)` 多次读取 byte/int/short 并进行队伍检查，`0x081EB686` 调 `CParty::setMonsterMoveHack`，`0x081EBB73` 调 `CParty::kill_monster`，`0x081EBC6D` 调 `Secu_HackLogCheck::DieMob`；`CParty::kill_monster` 的 `0x085A2D11` 调 `OnKilledMonster`，后者在 `0x085B5AC4` 调 `CTraceMobDieHack::addMonsterDamage`，另有 `CHackAnalyzer::addServerHackCnt` 与 `CBattle_Field::onClearMap` 调用。 `CParty::CheckHackAverageHitCount` 在 `dungeon_clear` / `giveup_game` / `party_dungeon_fail` 等调用。**报告验证/处罚细节仍需全函数逆向。** [run 38506571907](https://github.com/hustuhao/dnf/actions/runs/38506571907)、[run 38506766447](https://github.com/hustuhao/dnf/actions/runs/38506766447)。
 
 ### E43：限定 Host/PvP 等相邻机制的结论（H/U）
 
-\`Dispatcher_ChangeHost::dispatch_sig(0x08204C1E)\` 的 \`0x08204D5C\` 调 \`CParty::change_manager\`；\`CParty::send_host_info\` 可向队员群发 Host 信息；**Host 是否负责 PvE 实时 AI/伤害仍未知**。\`Dispatcher_ChangeHp::dispatch_sig(0x0820748A)\` 的 \`0x0820752B\` 调 \`pvp_assault::CAssaultMgr::OnChangeHp(0x082EF570)\`，**不能将其用作普通 PvE 血量同步机制的证据**。反汇编来源 [run 38506766447](https://github.com/hustuhao/dnf/actions/runs/38506766447)。
+`Dispatcher_ChangeHost::dispatch_sig(0x08204C1E)` 的 `0x08204D5C` 调 `CParty::change_manager`；`CParty::send_host_info` 可向队员群发 Host 信息；**Host 是否负责 PvE 实时 AI/伤害仍未知**。`Dispatcher_ChangeHp::dispatch_sig(0x0820748A)` 的 `0x0820752B` 调 `pvp_assault::CAssaultMgr::OnChangeHp(0x082EF570)`，**不能将其用作普通 PvE 血量同步机制的证据**。反汇编来源 [run 38506766447](https://github.com/hustuhao/dnf/actions/runs/38506766447)。
 
+
+### E44：SDC 校验值的服务器重算与 ±1 比较（H）
+
+在原版 Game ELF `f7a65ba7bc723e96fadeae07e87b72e05560d989` 上运行的 [Actions 静态分析](https://github.com/hustuhao/dnf/actions/runs/38507418346)：`Dispatcher_SDC_Damage_Check(0x081E9E84)` 在 `0x081EA025` 调 `uncompress`；`0x081EA066` 从解压结构 +`0x1E6` 读取报告值，`0x081EA085` 调 `computeHpDamageSDC(0x08095C32)`，`0x081EA090–0x081EA0A1` 以 **±1** 容差比较报告值与计算值；偏差过大时 `0x081EA0D8` 调 `CHackAnalyzer::addServerHackCnt`。**这证明代码中确实存在重算及校验，未证明怪物 HP 在此被扣减。**
+
+### E45：MapInfo 怪物记录偏移 +0x20 / +0x24 的确切写操作（H）
+
+[同一 ELF 机器码证据](https://github.com/hustuhao/dnf/actions/runs/38507418346)：`CBattle_Field::SetDamagedPacketCnt(0x08308F4E)` 通过 `GetCurrentMapInfo`、`std::map<int,map_monster>::find` 定位怪物，`0x08308FE4` 读 `[monster+0x20]`，`0x08308FE7` 令其 +1，`0x08308FED` 写回。`CBattle_Field::SetDamageValue(0x08308FF8)` 也查怪物，`0x0830908E` 读取 `[monster+0x24]`，`0x08309093` 与函数第三参数相加，`0x08309099` 写回。**这些字段是累计值，并非这两个函数里的 HP 扣减。**
+
+### E46：校验后传入累计函数的是收到的报告值（H）
+
+[同一反汇编](https://github.com/hustuhao/dnf/actions/runs/38507418346)：`Dispatcher_SDC_Damage_Check` 在 `0x081EA0E3–0x081EA0F7` 从 `CUser::GetPartyIndex` 经 `CGameManager::GetParty` 找到队伍，使用队伍内 `+0xB24` 指向的战场、报文结构 `+0x1CA` 对应的怪物键调用 `SetDamagedPacketCnt`，并在 `0x081EA123–0x081EA143` 以报告结构 `+0x1E6` 的**报告伤害值**调用 `SetDamageValue`，而不是以 `computeHpDamageSDC` 刚计算的校验值进行记录。`computeHpDamageSDC` ELF 符号长度 `0xAC8`，含 `getDamageInflict`、`isValidAttackInfoElement`、`SDC_Rand` 和浮点运算。**该路径不等于最终 HP 权威计算。**

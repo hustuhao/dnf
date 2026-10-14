@@ -98,10 +98,22 @@ Q02–Q08 的实时模拟权威、网络时序、幂等与动态恢复 **仍然�
 
 ## v0.6 新增 P0：多人实时战斗权威边界
 
-**Q15：\`computeHpDamageSDC\` 具体计算什么？** [E41](evidence.md#e41) 证明它被 \`Dispatcher_SDC_Damage_Check\` 调用，但必须反编译该函数的数据输入、结果使用和附近 \`SetDamageValue\` 的字段写入，区分“服务器重算或校验伤害”与“服务端拥有并扣减权威 HP”。建议针对 \`0x08095C32\` 和 \`0x08308FF8\` 做局部 CFG 与类型恢复。
+**Q15：`computeHpDamageSDC` 具体计算什么？** [E41](evidence.md#e41) 证明它被 `Dispatcher_SDC_Damage_Check` 调用，但必须反编译该函数的数据输入、结果使用和附近 `SetDamageValue` 的字段写入，区分“服务器重算或校验伤害”与“服务端拥有并扣减权威 HP”。建议针对 `0x08095C32` 和 `0x08308FF8` 做局部 CFG 与类型恢复。
 
 **Q16：技能表现/命中/怪物位置哪些通过 P2P/Host？** Game 已有技能上报及 Host 信息代码，但仍需已授权双客户端在不同 NAT 条件下进行录屏+pcap 对齐，并分析客户端发送游戏消息与 peer 传输实现。只凭 Game ELF 不得宣称所有实时动作都经过服务器。
 
-**Q17：\`MSG_MONSTER_DIE\` 的接受条件和去重机制是什么？** 根据 [E42](evidence.md#e42) 对 \`DisPatcher_DieMob\`、\`CParty::kill_monster\`、\`CBattle_Field::kill_monster\` 做控制流/状态字段与协议解析研究，检查 monster UID、重复死亡、damage check、可能的 Host 检查与结算唯一性。不可将存在检查函数等同于防作弊和幂等性已经完全有效。
+**Q17：`MSG_MONSTER_DIE` 的接受条件和去重机制是什么？** 根据 [E42](evidence.md#e42) 对 `DisPatcher_DieMob`、`CParty::kill_monster`、`CBattle_Field::kill_monster` 做控制流/状态字段与协议解析研究，检查 monster UID、重复死亡、damage check、可能的 Host 检查与结算唯一性。不可将存在检查函数等同于防作弊和幂等性已经完全有效。
 
-**排除误判：** \`Dispatcher_ChangeHp\` 直接调用的是 PvP Assault 处理器，不能替代上述普通地下城 HP 研究。[v0.6 战斗专报](combat-authority-v0.6.md)。
+**排除误判：** `Dispatcher_ChangeHp` 直接调用的是 PvP Assault 处理器，不能替代上述普通地下城 HP 研究。[v0.6 战斗专报](combat-authority-v0.6.md)。
+
+## Q18：普通怪物 HP 的实际写入地址在哪里？（P0）
+
+[E45](evidence.md#e45) 已证实 `SetDamageValue` 仅增加怪物对象 `+0x24` 的累计量，不是减血。下一步用 `map_monster` 的全部交叉引用找到 HP 字段、扣减操作的实际调用者，并比对 `DisPatcher_DieMob` 条件检查及可能的 Host 参与。
+
+## Q19：伤害校验失败会阻止继续计入伤害吗？（P0）
+
+`Dispatcher_SDC_Damage_Check` 使用 ±1 检查，并将异常交给 `CHackAnalyzer::addServerHackCnt`，但代码继续存在到 `SetDamageValue` 的路径。需精确分析反作弊阈值、是否会拒绝后续消息、是否影响战斗 HP 或仅记录处罚。
+
+## Q20：多人客户端的实时命中/动画/AI 状态通过哪个网络路径同步？（P0）
+
+Game 的 SDC 处理已证实，但不能据此得出最终判定由 Game、Host 还是客户端生成。需在授权隔离环境对两台客户端、Game TCP/UDP、P2P 与 Relay 实时抓包及录屏对齐，反查命中和怪物 HP 的真正来源。

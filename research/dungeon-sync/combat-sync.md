@@ -67,9 +67,15 @@ sequenceDiagram
 
 不再局限于特殊怪物攻城 Hook。已通过完整 Game ELF 直接反汇编确认：
 
-- **技能入站校验**：\`DisPatcher_UseSkill::read(0x081CAC5E)\` 解包 byte、byte、short、short；\`process(0x081CADAA)\` 在 \`0x081CAE89\` 调用 \`CHackLog_InvalidUsingSkill::IsValidUsingSkill\`，\`0x081CAF15\` 调用 \`CParty::use_skill\`，后者 \`0x085A77F9\` 调用 \`CParty::OnUsedSkill\`。[E40](evidence.md#e40)
-- **SDC 伤害检查**：\`Dispatcher_SDC_Damage_Check(0x081E9E84)\` 读取 byte/int/binary，\`0x081EA085\` 调 \`computeHpDamageSDC\`，\`0x081EA11E\`、\`0x081EA143\` 更新战场按怪物查询的受伤包计数与伤害字段。主动状态伤害还有另一条相似处理器。[E41](evidence.md#e41)
-- **死亡与反作弊**：\`DisPatcher_DieMob(0x081EB0C4)\` 解析死亡报文，并经 \`CParty::kill_monster\`、\`OnKilledMonster\`、\`CTraceMobDieHack::addMonsterDamage\` / \`CHackAnalyzer\` 处理，关卡开始/结束还维护命中计数。[E42](evidence.md#e42)
-- **避免误读**：\`Dispatcher_ChangeHp\` 属于 \`pvp_assault::CAssaultMgr::OnChangeHp\` 的调用路径，不能当作普通地下城伤害权威的证据。Host 变更处理器调用 \`CParty::change_manager\`，也不能据此断言 Host 模拟怪物 AI。[E43](evidence.md#e43)
+- **技能入站校验**：`DisPatcher_UseSkill::read(0x081CAC5E)` 解包 byte、byte、short、short；`process(0x081CADAA)` 在 `0x081CAE89` 调用 `CHackLog_InvalidUsingSkill::IsValidUsingSkill`，`0x081CAF15` 调用 `CParty::use_skill`，后者 `0x085A77F9` 调用 `CParty::OnUsedSkill`。[E40](evidence.md#e40)
+- **SDC 伤害检查**：`Dispatcher_SDC_Damage_Check(0x081E9E84)` 读取 byte/int/binary，`0x081EA085` 调 `computeHpDamageSDC`，`0x081EA11E`、`0x081EA143` 更新战场按怪物查询的受伤包计数与伤害字段。主动状态伤害还有另一条相似处理器。[E41](evidence.md#e41)
+- **死亡与反作弊**：`DisPatcher_DieMob(0x081EB0C4)` 解析死亡报文，并经 `CParty::kill_monster`、`OnKilledMonster`、`CTraceMobDieHack::addMonsterDamage` / `CHackAnalyzer` 处理，关卡开始/结束还维护命中计数。[E42](evidence.md#e42)
+- **避免误读**：`Dispatcher_ChangeHp` 属于 `pvp_assault::CAssaultMgr::OnChangeHp` 的调用路径，不能当作普通地下城伤害权威的证据。Host 变更处理器调用 `CParty::change_manager`，也不能据此断言 Host 模拟怪物 AI。[E43](evidence.md#e43)
 
 **阶段判断：** Game 进程参与技能合法性和伤害相关数据检查，管理怪物死亡/奖励相关状态；**普通战斗每次命中、最终 HP 扣减、动画同步是否依赖 P2P、Host 具体职责仍未知**。完整调用表/图见 [combat-authority-v0.6.md](combat-authority-v0.6.md)。
+
+## v0.7：SDC 重算与怪物累计统计字段
+
+经完整 ELF 反汇编，[本轮工作流](https://github.com/hustuhao/dnf/actions/runs/38507418346) 进一步证实：`Dispatcher_SDC_Damage_Check` 的 `0x081EA085` 调 `computeHpDamageSDC`，`0x081EA090–0x081EA0A1` 比较计算值与报告值的差距是否在 **±1** 内，超出走 `CHackAnalyzer` 异常计数；之后从用户队伍索引取 `CParty + 0xB24` 战场对象，在当前地图按怪物索引找到 `map_monster`，对 `+0x20` 做 **+1**、`+0x24` 做 **+= 报告伤害值**。[E44](evidence.md#e44) [E45](evidence.md#e45) [E46](evidence.md#e46)
+
+**不能把 `SetDamageValue` 当成 HP 扣血：它是累加器。** 是否真正拒绝异常数据、最终怪物 HP 扣减发生在何处、P2P/Host 是否传播实时命中消息仍未证实。见 [damage-check-v0.7.md](damage-check-v0.7.md)。
