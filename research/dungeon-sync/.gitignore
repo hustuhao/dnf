@@ -1,0 +1,4 @@
+artifacts-local/
+*.pcap
+*.pcapng
+*.core
