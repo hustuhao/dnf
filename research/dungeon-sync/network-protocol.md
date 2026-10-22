@@ -1,5 +1,7 @@
 # 网络路径、端口与协议头（静态分析）
 
+> 2026-10-22 更新：已补齐 v0.6 对象所有权任务；保留既有 v0.7。新结论以 [E47–E56](evidence.md#e47) 和 [对象布局补充](game-owner-static.md#instance-ownership-v06) 为准，以下旧版本段落保留研究历史。
+
 ## 当前部署示例与历史配置的边界
 
 | 功能 | 现行 `deploy/dnf/docker-compose/basic/docker-compose.yaml` | 其他来源 | 判断 |
@@ -96,3 +98,45 @@ sudo tcpdump -i <test-iface> -s 0 -w dungeon-test.pcap \
 `CParty::send_host_info() 0x0859CDD2` 在 **`0x0859CE5C: call 0x0859D14E`** 进入 `CParty::send_to_party(PacketGuard&)`；该函数先在 **`0x0859D16A: call 0x085B4D12`** 校验成员，再在 **`0x0859D194: call 0x086485BA`** 调 `CUser::Send(PacketGuard&)`。`CParty::send_party_ipinfo() 0x0859CEA2` 与 `CParty::ConnectP2P 0x0859A48C` 为 ELF 原生符号（H）。
 
 静态结论：Game 具备已调用的向**同一队伍多个 CUser 单播发包**的路径，同时提供 P2P IP 和 Host 协调功能。**未知（U）**：普通移动、技能、伤害、怪物 AI 是否走该接口；`CUser::Send` 进一步 TCP/UDP 排队路径、具体包头 opcode 和 Relay/Host/Peer 间战斗数据的路由。应先反查 `Dispatcher_ChangeHostWarRoom`、`DisPatcher_ResPeer`、`DisPatcher_DieMob` 与 `PacketBuf_get_*` 的读包/dispatch 注册表，再提出协议结论，不能从方法名推断网络协议。
+
+## v0.6 补充：Game command 注册、字段前缀与服务器通知（2026-10-22）
+
+本节为 ELF 静态协议证据，**不是线上抓包规范**。数字分开列 command 注册索引和
+服务器 put_header(classification, message) 参数，不推断二者共用同一枚举。
+依据 [E51–E53](evidence.md#e51)、[E56](evidence.md#e56)。
+
+PacketDispatcher 构造给表写入 dispatcher 指针，get_dispatcher 的
+0x08594908 直接读 `[this+index*4]`。doDispatch:0x08594A20 根据 unsigned short
+命令参数选项，0x08594D39 虚调用。SelectDungeon 的 vptr 0x08BDBDC8
+首项为 dispatch_template(0x08258956)；
+模板的 +0x14/+0x18/+0x1C 槽分别是 read/process/send，
+调用点 0x082589B6/0x082589FE/0x08258A3E。
+process 内 0x081C8131 调 check_error。尚未反查到底层 Socket/完整解密包头。
+
+| 入站 command | dispatcher / 注册写指令 | 解包入口与已确认布局 |
+|---|---|---|
+| 16 (0x10) | SelectDungeon；0x08590F39 写 +0x40 | read 0x081C7E10：short → byte → byte → byte，写 MSG+0x0D/+0x0F/+0x10/+0x11；call 0x081C7E2C/0x081C7E71/0x081C7EB6/0x081C7EF8 |
+| 42 (0x2A) | DieMob；0x085912CB 写 +0xA8 | dispatch_sig 0x081EB0C4：固定前缀 u16,u16,i32,i32,u32,u32,u8；后续含计数、循环及条件字段，不是固定全长 |
+| 46 (0x2E) | GetItem；0x0859135F 写 +0xB8 | read 0x081C335C：先 u16,byte,byte,u16,u16,u16；后续仍有 short 读取，完整循环布局待恢复 |
+| 48 (0x30) | MoveMap；0x085913A9 写 +0xC0 | read 0x081C47BA：先 byte,byte,u32,u32,u8,u16；后续有重复/条件字段 |
+| 74 (0x4A) | Select_Card；0x08591746 写 +0x128 | dispatch_sig 0x081FF7DE：0x081FF8C2、0x081FF93D 读 byte；条件路径，不声明总长固定 2 |
+
+SelectDungeon 的配置索引来自 MSG+0x0D（process:0x081C8DF5），难度从后续 byte
+传入 dungeon_start；另两 byte 的枚举语义只按实际使用逐步命名，不编造客户端字段。
+MSG+0x0D 是**解码后的 C++ 对象字段偏移**，不是已证实的原始网络包头长。
+Getter 的 signed/unsigned 仅标示该 C++ 重载，字节序和上游缓冲变换未完整核实。
+MoveMap/GetItem 列出的是已检查的 getter 顺序前缀，不以函数名给字段补造意义。
+
+| Game 输出组包参数 | 实际函数与指令 | 已确认 payload |
+|---|---|---|
+| (0,26) | send_host_info:0x0859CDE5/0x0859CDFB | 匹配 P+0x70 的成员槽号 byte，0x0859CE37；经 send_to_party 发出 |
+| (0,11) | send_party_ipinfo:0x0859CEB5/0x0859CECB | 成员数 byte；有效成员各写 UID u16、inner IP u32、IP u32、port u16、acc id u32、NAT byte、MTU u32、末 byte |
+| (0,28) 普通入本 | dungeon_start:0x085A1697/0x085A16B0 | dungeon short、difficulty byte，再 MakePacket(28) 追加内容，随后 send_to_party |
+| (0,29) 地图数据 | MakePacket:0x08309107/0x0830911A | getCurPosXY 后写 X/Y byte（0x08309153/0x08309165），后续内容未完整协议化 |
+
+(0,11) 每成员字段的组包点：
+0x0859CF3C/0x0859CF6F/0x0859CFA2/0x0859CFD8/0x0859D006/
+0x0859D03C/0x0859D06F/0x0859D0CC（无角色时末 byte 用 0x0859D0E1）。
+只记录字段结构，未提交任何真实地址或账号值。
+send_to_party 遍历有效成员后 CUser::Send 的具体 TCP/UDP 排队、加密、
+Peer/Relay 战斗报文映射仍未知；死亡业务广播不能代替全部实时状态路由证明。

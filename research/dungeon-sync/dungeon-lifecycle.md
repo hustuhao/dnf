@@ -1,5 +1,7 @@
 # 地下城实例生命周期（当前为研究状态机）
 
+> 2026-10-22 更新：已补齐 v0.6 对象所有权任务；保留既有 v0.7。新结论以 [E47–E56](evidence.md#e47) 和 [对象布局补充](game-owner-static.md#instance-ownership-v06) 为准，以下旧版本段落保留研究历史。
+
 ## 已有的坚实入口
 
 - `doc/ArchitectureDiagram.md:180-203` 把“地下城内游戏进行处理”列在 Game 服务职责中。[E01]
@@ -78,3 +80,33 @@ flowchart TD
 ```
 
 未知项：以上并未确认 dispatcher 的**上游 opcode 与消息来源**、`dungeon_start` 内资源创建的完整路径、MapInfo 的真实分配/回收、Host 改选、断线重连后的对象留存及结算幂等条件。并且 **`CDungeon::get_index` 返回的类型/配置索引绝不能当作唯一运行实例 ID**。
+
+## v0.6 已确认的对象生命周期与入场通知（2026-10-22）
+
+本节覆盖此前“实例创建/MapInfo 分配均未知”的表述；完整地址表和 Mermaid
+见 [所有权补充](game-owner-static.md#instance-ownership-v06)。
+
+1. **构造/分配**：池中的 CParty 构造在 0x082A55B9 对自身 +0xB24
+   构造 CBattle_Field；该战场在 0x082A455D 构造 +0x78 地图 map。
+2. **初始化/复用**：SetIDX → CParty::init（0x082A59DF）→
+   CBattle_Field::reset_field（0x0859ABE2）；后者清配置引用与地图节点。
+   入本不是每次分配新的 CBattle_Field。
+3. **入本请求**：command 16 注册到 SelectDungeon；
+   模板虚调用 read(0x081C7E10)、process(0x081C8102)，
+   process 的 0x081C8131 调 check_error，0x081C8E0F 调 dungeon_start。
+4. **地图上下文**：dungeon_start:0x085A0DAE →
+   CBattle_Field::SelectDungeon:0x082FF486 →
+   GetAppropriateMaze / SetGridPath / MapInfo 插入 / ConsistMap。
+   B+0x188 保存配置，B+0x1A0 保存难度，默认网格位置在 +0x60/+0x64；
+   per-seat/layered 副本有不同选择分支。
+5. **成员通知**：普通分支 MakePacket(28/29) 后经
+   0x085A1716/0x085A175C 调 send_to_party → CUser::Send。
+   0x085A2046 调 send_loadingcheck_msg，其函数体是
+   TimerQueue::InsertTimer（0x085B205B），不能按名字说它直接发加载包。
+6. **归还池**：CParty::destroy:0x0859AE48 调 init，
+   0x0859AE5C 调 PutParty，再经 Pool::Free 把节点放回队列；
+   真正 CParty 析构才在 0x082A58ED 析构内嵌战场。
+
+[E47–E52](evidence.md#e47) 支持上述静态调用边；客户端完成加载 ACK、
+完整离本分支、Host 单独断线、重连保留与实例唯一世代编号仍未知。
+MapInfo 的节点随容器 clear/析构回收，不代表每次 dungeon_start 都必经完整 destroy。

@@ -1,5 +1,7 @@
 # DNF 多人地下城实时同步机制研究（Game ELF 静态研究 v0.7）
 
+> 2026-10-22 更新：已补齐 v0.6 对象所有权任务；保留既有 v0.7。新结论以 [E47–E56](evidence.md#e47) 和 [对象布局补充](game-owner-static.md#instance-ownership-v06) 为准，以下旧版本段落保留研究历史。
+
 > 基线：hustuhao/dnf，`main` @ `1d59eeafeaa105a3c109091c3d5fc061a30bbf19`；分析日期：2026-10-11。  
 > 状态：**研究 v0.7（2026-10-14）**。已在 GitHub Actions 对完整 `df_game_r` ELF 进行静态 `readelf/nm/objdump` 检查，补全队伍注册表、用户查找、战场关系及副本业务分发直接调用；仍未运行游戏服务或抓包。本文仅适用于本仓库 ELF 基线。下方 v0.4 条目保留作历史阶段记录。
 
@@ -99,3 +101,29 @@ bash research/dungeon-sync/cloud/scan-static.sh
 [详细研究](damage-check-v0.7.md) | [最新静态验证工作流](https://github.com/hustuhao/dnf/actions/runs/38507418346) | [证据 E44–E46](evidence.md#e44)
 
 `Dispatcher_SDC_Damage_Check` 会解压输入，调用 `computeHpDamageSDC` 重算并以 **±1** 容差检查报告的伤害值，异常进入 `CHackAnalyzer::addServerHackCnt`；随后在 Game 内部根据队伍找到当前怪物记录，将 `map_monster+0x20` 计数加一、`map_monster+0x24` 增加**报告的伤害值**。两个 Setter **不是直接扣除怪物 HP**；实时伤害与怪物 AI 的权威仍需客户端/P2P 证据。
+
+## v0.6 对象所有权补充（2026-10-22，保留 v0.7 伤害研究）
+
+本任务要求的 v0.6 所有权研究现补齐；研究分支此前已到 v0.7，故不把整套文档降版，
+不覆盖已有 E40–E46。新增 [E47–E56](evidence.md#e47)，
+详见 [对象布局与入本调用链](game-owner-static.md#instance-ownership-v06)。
+
+- **确定的 Game 侧共享状态**：CParty 直接内嵌 CBattle_Field，地址为 `P+0xB24`；
+  战场 `+0x78` 的 `std::map<int,MapInfo>` 按值持有地图运行数据。
+  同队索引解析相同 P/B，不同活跃队伍的容器分离；未做双客户端实测。
+- **配置与运行时分开**：`B+0x188` 是 CDataManager 查到的 CDungeon 配置引用，
+  `B+0x1A0` 保存难度，地图键=100*x+y；独立副本运行 ID 尚未识别。
+- **入本链闭合到 Game 发包**：SelectDungeon::process → dungeon_start →
+  CBattle_Field::SelectDungeon → 地图选择/MapInfo 插入 → ConsistMap；
+  普通分支通过 MakePacket(28/29) 和 send_to_party 通知成员，客户端加载 ACK 仍待追踪。
+- **死亡与 Host 边界**：普通入站死亡报告会查询/删除怪物记录并进入掉落、经验、
+  任务、广播；另有 TimerBossDieTimeout 主动触发处理路径。Host `+0x70` 与
+  manager `+0x74` 分别保存，已查 set_host 路径令它们指向同一用户。
+  仍不能断言 Game 或 Host 独占普通 PvE HP、逐帧移动、怪物 AI。
+- **协议新证据**：注册表实证 command 16/42/46/48/74；
+  Host 通知组包 (0,26)，队伍地址信息 (0,11)。这些不是抓包验证。
+
+本轮在已配置云端直接检查完整 ELF，blob/SHA256 匹配；四个规定脚本运行成功。
+新增 `python3 research/dungeon-sync/cloud/probe-instance-layout.py`，
+校验 34 个真实字节锚点，输出 47 个完整函数与全部直接引用到 gitignored 目录。
+不启动 Game，不提交二进制、原始输出或敏感值。

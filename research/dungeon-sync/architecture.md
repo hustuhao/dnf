@@ -1,5 +1,7 @@
 # 多人地下城架构：部署平面与尚未确定的模拟平面
 
+> 2026-10-22 更新：已补齐 v0.6 对象所有权任务；保留既有 v0.7。新结论以 [E47–E56](evidence.md#e47) 和 [对象布局补充](game-owner-static.md#instance-ownership-v06) 为准，以下旧版本段落保留研究历史。
+
 **研究状态：静态 v0.1**。进程/端口是配置事实；进程内部副本实例与游戏循环仍未知。
 
 ## 可识别的服务
@@ -88,3 +90,23 @@ flowchart LR
   FIELD -->|"0x0822D04A call"| MAP["GetCurrentMapInfo"]
   PARTY -. "仍未证明普通帧战斗权威" .-> HOST["Host / P2P / Client"]
 ```
+
+## v0.6 对象所有权补充（2026-10-22）
+
+本节更新上文 v0.5 的布局未知项；[E47–E50](evidence.md#e47) 与
+[完整对象图/字段表](game-owner-static.md#instance-ownership-v06) 是依据。
+频道进程 `df_game_r` 内，CGameManager 管理活跃 CParty，
+每个 CParty **内嵌** `CBattle_Field at +0xB24`；
+战场 **内嵌 map 容器 at +0x78**，节点按值保存 MapInfo，
+MapInfo+0x0C 又持有怪物 map。由不同活跃队伍对象地址实现运行数据隔离，
+没有“每队新进程”证据。相同队伍索引的成员在 Game 侧取得同一战场上下文。
+
+CDungeon* 从 CDataManager/CDungeonList 查到并存 B+0x188；
+CMap* 按 MapInfo 地图索引查询后存 B+0x108。
+这些配置引用与按队伍维护的怪物/房间/难度状态不同，不是唯一运行实例 ID。
+普通 reset 清地图容器/配置引用；destroy → init → PutParty 归还池，
+不能把 Pool::Free 说成 delete 战场。[E48](evidence.md#e48)
+
+静态结论只覆盖 Game 内状态持有；客户端资源、Peer 帧同步、Host AI/伤害计算
+仍是未知。STUN/Relay 部署关系不构成它们持有普通副本运行数据的证据。
+同队共享和不同队伍隔离的实际会话地址、复用世代与异常回收尚待动态验证。

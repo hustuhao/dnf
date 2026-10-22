@@ -1,5 +1,7 @@
 # 技能、伤害与怪物状态同步
 
+> 2026-10-22 更新：已补齐 v0.6 对象所有权任务；保留既有 v0.7。新结论以 [E47–E56](evidence.md#e47) 和 [对象布局补充](game-owner-static.md#instance-ownership-v06) 为准，以下旧版本段落保留研究历史。
+
 ## 先区分两类信息
 
 - **技能表现同步**：输入、起手、特效、动画、朝向等。位置与视觉效果的传播并不自动证明伤害结算归属。
@@ -79,3 +81,48 @@ sequenceDiagram
 经完整 ELF 反汇编，[本轮工作流](https://github.com/hustuhao/dnf/actions/runs/38507418346) 进一步证实：`Dispatcher_SDC_Damage_Check` 的 `0x081EA085` 调 `computeHpDamageSDC`，`0x081EA090–0x081EA0A1` 比较计算值与报告值的差距是否在 **±1** 内，超出走 `CHackAnalyzer` 异常计数；之后从用户队伍索引取 `CParty + 0xB24` 战场对象，在当前地图按怪物索引找到 `map_monster`，对 `+0x20` 做 **+1**、`+0x24` 做 **+= 报告伤害值**。[E44](evidence.md#e44) [E45](evidence.md#e45) [E46](evidence.md#e46)
 
 **不能把 `SetDamageValue` 当成 HP 扣血：它是累加器。** 是否真正拒绝异常数据、最终怪物 HP 扣减发生在何处、P2P/Host 是否传播实时命中消息仍未证实。见 [damage-check-v0.7.md](damage-check-v0.7.md)。
+
+## v0.6 所有权补充：死亡事件来源与 Host 边界（2026-10-22）
+
+本节进一步细化此前“死亡产生来源未知”，并保留 v0.7 的 SDC 结论。
+证据 [E53–E56](evidence.md#e53)。
+
+| 问题 | 本轮能确定到的边界 |
+|---|---|
+| 谁报告普通死亡 | DieMob 处理器从 CUser 对应 PacketBuf 解包，沿 state==5 分支按队伍索引调用 kill_monster；客户端是否先接受 Host 结果未知 |
+| 服务端检查什么 | PacketBuf getter 失败路径、用户状态、队伍非空、当前 MapInfo 怪物容器中对应记录是否存在有指令证据；全部位置/伤害/归属/Host 权限条件尚未恢复 |
+| 服务端是否存怪物数据 | MapInfo+0x0C 有 map<int,map_monster>；存在累计伤害/包计数（E45），尚未定位普通怪物最终 current HP 扣减 |
+| 死亡后修改什么 | 成功路径 _MakeDropItems → 怪物 map::erase → IsClearDungeon；CParty 层有 OnKilledMonster、CheckQuestMonster、gain_exp_sp、send_to_party |
+| 是否只收报告 | 否，TimerBossDieTimeout:0x086364BC → OnTimeoutBossDie:0x085AA876 → kill_monster；这是受条件约束的超时处理，不证明逐次 HP 由 Game 计算 |
+| 是否重复可结算 | 删除后的普通活跃记录再次查询会失败；特殊模式、复活、并发与数据库奖励幂等性未全证实 |
+
+**Host 记录是 CUser*，不是槽号。** P+0x70 保存 Host，P+0x74 保存 manager。
+set_host 把后者复制给前者；send_host_info 再找匹配的成员槽，把槽号写入 (0,26)
+通知。它没有在这段逻辑中发送 Host IP；成员地址由独立 (0,11) 消息发给队伍。
+leave_user 在离开者为 manager 时调用 change_manager，按槽序选首个有效用户，
+写 manager、set_host、send_host_info。可确认“manager 离队后的 Host 重设”，
+不能扩大为“所有 Host 单独断线都已验证无缝迁移”。
+
+ConnectP2P 处理成员连接完成标志及最多四字节结果，ResPeer 可创建/加入队伍并通知地址。
+尚未查出客户端互传技能/怪物位置/伤害的具体代码或线协议。
+Game 有死亡结果广播、技能合法性检查、SDC 重算与反作弊；既不能说它仅透明转发，
+也不能说它独占全部实时战斗权威。
+
+```mermaid
+flowchart LR
+  A["用户连接 / PacketBuf"] -->|"command 42 解包 / E53"| D["DieMob::dispatch_sig"]
+  D -->|"0x081EBB73"| P["CParty::kill_monster"]
+  T["TimerBossDieTimeout"] -->|"0x086364BC"| OT["OnTimeoutBossDie"]
+  OT -->|"本地死亡参数 / 0x085AA876"| P
+  P -->|"0x085A2B44"| B["CBattle_Field::kill_monster"]
+  B -->|"查询 / 掉落 / erase / clear 检查"| M["当前 MapInfo 怪物记录"]
+  P -->|"0x085A39D6"| S["send_to_party → CUser::Send"]
+  P -->|"任务 / 经验"| R["Game 侧结算状态"]
+  G["Game Host/P2P 协调"] -->|"通知 26 / 地址 11"| C["队伍客户端"]
+  S -->|"死亡业务结果"| C
+  H["Host / 客户端模拟范围未知"] -.->|"未知：是否先计算再报告"| A
+  C -.->|"未知具体消息 / P2P 或 Relay"| H
+```
+
+实线是机器码可确认的处理/发送关系，虚线是未知；客户端死亡的物理产生点、
+Host AI tick、当前 HP、peer 复制消息必须继续检查客户端或做获授权隔离动态验证。

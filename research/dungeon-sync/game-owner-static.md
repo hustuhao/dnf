@@ -1,5 +1,7 @@
 # Game ELF 静态逆向 v0.5：队伍、战场所有权与已发现消息入口
 
+> 2026-10-22 更新：已补齐 v0.6 对象所有权任务；保留既有 v0.7。新结论以 [E47–E56](evidence.md#e47) 和 [对象布局补充](game-owner-static.md#instance-ownership-v06) 为准，以下旧版本段落保留研究历史。
+
 > **证据类型：** 只读 ELF 符号表 + GNU objdump 指令 + 直接调用交叉引用；没有运行游戏程序、抓包或检查客户端。
 > 基线 Git blob：`f7a65ba7bc723e96fadeae07e87b72e05560d989`，SHA256：`8859c99d8290dc5fb58151444138cf2697b2bfff12d47d6159596a03f20b5261`。
 > 程序：`build/dnf_data/home/template/init/df_game_r`，36,360,954 字节，ELF32 x86 `ET_EXEC`，带 `.symtab` / 调试信息，入口 `0x0807E910`；可执行 PT_LOAD 为 `0x08048000` 起始、`0x01320E61` 字节。
@@ -128,3 +130,138 @@ python3 research/dungeon-sync/cloud/probe-game-paths.py
 ```
 
 扫描产生的文件保存在 gitignored `research/dungeon-sync/artifacts-local/`。**没有提交原始 ELF、原始 strings dump、网络包、用户数据、私服运行日志或其他敏感内容。** 当前可追溯机器码取自上述 GitHub Actions 日志；后续若更换 ELF SHA，所有地址和偏移均必须重新确认。
+
+<a id="instance-ownership-v06"></a>
+
+## v0.6 对象所有权补充（2026-10-22，E47–E56）
+
+本节覆盖上文 v0.5 的“是否内嵌、MapInfo 保存位置未知”。远端基线已是
+`3bc715164c1d9a56c36fd0555db18932270b699b`（v0.7）；保留后续伤害研究，不降版，
+不重用已存在的 E40–E46。所有地址仍属于本文开头指定的同一 ELF。
+
+### 对象布局与隔离（H，静态）
+
+`B = (char*)P + 0xB24`，其中 P 为 CParty，B 为 CBattle_Field。
+构造函数 `0x082A55B1 add eax,0xb24; 0x082A55B9 call 0x082A44FE`，
+随后 `0x082A564A lea edx,[eax+0xb24]` 将该地址作为 SetParty 的 this。
+析构正常路径 `0x082A58E5 add eax,0xb24; 0x082A58ED call 0x082A499C`。
+因此它是**直接内嵌子对象**，不是从 CParty 的指针槽加载的独立堆对象。
+这不意味着其 STL 容器节点也全部内嵌。
+
+| 对象基址 + 偏移 | 已恢复含义 | 指令锚点 |
+|---|---|---|
+| P + 0x64 | 队伍索引；不是已证实的副本运行 ID | SetIDX: 0x082A59D6 |
+| P + 0x70 / +0x74 | Host CUser* / manager CUser* | 0x0859CDC2/0x0859CDC8；getManager 0x08145786 |
+| P + 0x78 + 24*i | 四个成员槽中的 CUser* | 构造 0x082A5549、步长 0x18、循环 4 次 |
+| P + 0xB24 | CBattle_Field 子对象 | 0x082A55B1/0x082A55B9 |
+| B + 0x00 | CParty* 非拥有回指针 | 0x082A43C7 |
+| B + 0x60 / +0x64 | 默认当前房间网格 X/Y；不是角色像素坐标 | getCurPosXY 0x08300E2E/0x08300E39 |
+| B + 0x74 | MazeScript* 查询上下文 | GetMapInfoFromPos 0x0822CCFD/0x0822CD1B |
+| B + 0x78（P + 0xB9C） | std::map<int,MapInfo>，按值持有地图运行数据 | 构造 0x082A4557/0x082A455D；查询 0x0822CC7E/0x0822CC98 |
+| B + 0x108 | 当前 CMap* 配置引用 | ConsistMap 0x08303208/0x08303210 |
+| B + 0x114 | 当前 seat 选择；特定副本使用每席房间坐标 | getCurPosXY 0x08300DD1–0x08300E29 |
+| B + 0x188（P + 0xCAC） | const CDungeon* 配置引用 | SelectDungeon 0x082FF6D7 |
+| B + 0x194 | 地下城配置索引（SelectDungeon 第一个 int 入参） | 0x082FF4A0；调用方 0x085A0D6B/0x085A0DA1 |
+| B + 0x198 | 入本成员数 | 0x082FF4C1；调用方 0x085A0D5D/0x085A0D8B |
+| B + 0x1A0（P + 0xCC4） | 难度整数，setter 将输入限制到 0..4 | 0x0830ED25–0x0830ED31 |
+| MapInfo + 0x04 | 地图配置索引 | ConsistMap 0x083031FB → getMap |
+| MapInfo + 0x0C | std::map<int,map_monster> 怪物运行记录 | kill_monster 0x0830BCFA/0x0830BD14 |
+
+地图键为 `100*x+y`（`0x0822CBC4 imul eax,eax,0x64`，
+`0x0822CBC7 add eax,[ebp+0x10]`）。GetMapInfoFromPos 找到节点后返回
+pair.second 地址（`0x0822CCED call operator->; 0x0822CCF2 lea ebx,[eax+4]`）；
+找不到时构造 MapInfo、insert，再取节点的 second。
+存在 layered map 分支（0x0822CD51/0x0822CD67），不能把全部特殊副本简化成单一地图指针。
+CParty 另有 `+0x1AF4 std::vector<MapInfo>`（0x082A5609），用途尚未恢复；
+它不能替代上述已确认的普通战场 map 容器。
+
+同队 CUser 用相同队伍索引解析到同一 P，因此访问同一 B；不同活跃队伍的 P 不同，
+内嵌的 B 和 map 容器也不同。这是**静态对象身份/内存隔离结论**，
+不是双客户端地址实测，也不是证明 CDungeon/CMap 配置独占。
+`dungeon_start:0x085A09D4/0x085A09E0` 经全局 CDataManager 查找 CDungeon，
+`find_dungeon:0x0835FA0D` 再委托 CDungeonList；没有每次入本 new CDungeon 的这条证据。
+地下城 ID 是配置查找键；怪物、房间坐标和难度属于 B 的运行上下文。
+**未识别独立且跨队/跨复用周期唯一的副本运行实例 ID。**
+
+```mermaid
+flowchart TD
+  GM["df_game_r / CGameManager"] -->|"StaticPool Acquire；registry +0x270"| P["CParty P"]
+  U["同队 CUser / 队伍索引"] -->|"GetParty(int)"| P
+  P -->|"直接内嵌 +0xB24 / E47"| B["CBattle_Field B"]
+  B -->|"+0x00 回指针 / 非拥有"| P
+  B -->|"+0x78 按值容器 / E49"| M["std::map int, MapInfo / key=100*x+y"]
+  M -->|"节点 pair.second"| MI["MapInfo"]
+  MI -->|"+0x0C"| MOB["std::map int, map_monster"]
+  B -->|"+0x188 配置引用"| D["CDungeon const* / CDataManager"]
+  B -->|"+0x108 配置引用"| CM["CMap*"]
+  P -->|"+0x1AF4 容器；用途未知"| V["另一个 vector MapInfo"]
+  P -.->|"未识别"| ID["独立副本运行 ID"]
+```
+
+### 初始化、复用与真正析构（E48）
+
+SetIDX 在 `0x082A59DF` 调 CParty::init；init 在
+`0x0859ABE2` 对 P+0xB24 调 `reset_field(0x0830A1F6)`。
+reset_field 在 `0x0830A33A` 清 B+0x188 配置指针，在
+`0x0830A40E` 清 B+0x78 的 map。
+`CParty::destroy(0x0859AD4C)` 的 `0x0859AE48` 调 init，
+`0x0859AE5C` 调 PutParty；PutParty 擦注册表并交回池。
+**Pool::Free 不是 C++ 析构**：0x082B1214 将节点压回空闲队列，
+0x082B12F5 减少节点使用标志；该函数没有调用 CParty::~CParty。
+真正 C++ 析构在 0x082A58ED 析构内嵌 B，B 的正常析构尾
+0x082A4C3D 析构地图容器。不能把每次入本说成 new 战场，或每次离本说成 delete 战场。
+完整退出分支是否都重置、异常清理与重连留存仍待验证。
+
+### 已恢复的入本成功路径（E50–E52）
+
+下列是存在的调用边；每条受前置校验和副本类型分支控制，不表示每次请求都成功。
+
+| 函数 / 入口 VA | 调用者中的指令 | 被调用者 / 结果 |
+|---|---|---|
+| DisPatcher_SelectDungeon::process / 0x081C8102 | 0x081C8E0F call 0x085A0954 | CParty::dungeon_start |
+| CParty::dungeon_start / 0x085A0954 | 0x085A09E0 call 0x0835F9F8 | 查 CDungeon 配置 |
+| 同上 | 0x085A0DAE call 0x082FF486，this=P+0xB24 | CBattle_Field::SelectDungeon |
+| CBattle_Field::SelectDungeon / 0x082FF486 | 0x082FF70C call 0x082FF128 | GetAppropriateMaze |
+| 同上 | 0x082FF764 call 0x082FFB30 | SetGridPath |
+| 同上 | 0x082FF84F call 0x08151394；0x082FF8E7 call 0x08235FEC | MapInfo 构造并插入本战场 map |
+| 同上 | 0x082FF943 call 0x083031D2 | ConsistMap |
+| ConsistMap / 0x083031D2 | 0x083031F0 call 0x0822CBCC；0x08303208 call 0x08300ED4 | 取当前 MapInfo，按其 +4 索引查 CMap；保存 B+0x108 |
+| dungeon_start 普通分支 | 0x085A1701 / 0x085A1747 call 0x083090A4 | MakePacket(28) / MakePacket(29) |
+| 同上 | 0x085A1716 / 0x085A175C call 0x0859D14E | 将入场/地图数据逐成员发送 |
+| send_to_party / 0x0859D14E | 0x0859D194 call 0x086485BA | CUser::Send |
+| dungeon_start | 0x085A2046 call 0x085B1FE0 | send_loadingcheck_msg：设置加载检查计时器 |
+
+`send_loadingcheck_msg` 的名字不能替代指令解释：本次完整函数显示
+0x085B205B 调 TimerQueue::InsertTimer，**没有在此函数中直接发送加载包**。
+客户端完成资源加载、客户端入场 ACK 到何处还未闭环。
+普通分支组包先 put_header(0,28)，追加地下城 short 和难度 byte，
+再 MakePacket(28)；随后 MakePacket(29) 生成地图数据头。
+212/211 是其他条件分支，不与普通 28/29 混用。
+这里恢复了 Game 生成/选择地图上下文与通知成员的路径；
+客户端地图资源加载、刷怪显示和模拟不在 Game ELF 中直接可证。
+
+```mermaid
+flowchart TD
+  NET["客户端消息 / dispatcher index 16"] -->|"E51 注册表+虚表"| RD["SelectDungeon::read 0x081C7E10"]
+  RD -->|"模板顺序虚调用"| PR["process 0x081C8102"]
+  PR -->|"0x081C8E0F"| DS["dungeon_start 0x085A0954"]
+  DS -->|"0x085A09E0"| CD["CDataManager::find_dungeon"]
+  DS -->|"0x085A0DAE"| SD["B::SelectDungeon 0x082FF486"]
+  SD -->|"0x082FF70C"| MAZE["GetAppropriateMaze"]
+  SD -->|"0x082FF764"| GRID["SetGridPath"]
+  SD -->|"0x082FF8E7"| MI["本 B 的 map 插入 MapInfo"]
+  SD -->|"0x082FF943"| CONS["ConsistMap 0x083031D2"]
+  CONS -->|"0x08303208"| MAP["getMap / 保存 CMap*"]
+  DS -->|"0x085A1701 / 0x085A1747"| PK["MakePacket 28 / 29"]
+  DS -->|"0x085A1716 / 0x085A175C"| SEND["send_to_party → CUser::Send"]
+  DS -->|"0x085A2046"| TIMER["加载检查 TimerQueue"]
+  SEND -.->|"未知：客户端加载/ACK 完整路径"| CLIENT["客户端进入可战斗状态"]
+```
+
+### 复核方法与范围
+
+执行 `python3 research/dungeon-sync/cloud/probe-instance-layout.py`：
+先锁定 SHA256 / ELF32 x86，再核对关键机器码字节，按 ELF 符号边界保存完整函数，
+枚举直接调用者。产物只写入 gitignored `artifacts-local/instance-layout-v06/`。
+它不执行 ELF；完整指令/局部 CFG 应结合证据索引 E47–E56 阅读。
+同队共享是静态证明；跨客户端实测、Host 计算范围、逐帧 HP、AI、协议真实时序均未实验。
